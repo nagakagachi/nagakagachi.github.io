@@ -64,7 +64,7 @@ def validate(root, source):
             article_count += 1
             if target not in pages:
                 errors.append(f'Article missing: {index}')
-            elif fields['hatena_original_url'] not in pages[target].refs:
+            elif fields.get('hatena_original_url') and fields['hatena_original_url'] not in pages[target].refs:
                 errors.append(f'Original article link missing: {index}')
     for name in ('hatena_backup', 'tools', 'content', 'drafts'):
         if (root / name).exists():
