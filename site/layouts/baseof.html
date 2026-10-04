@@ -6,6 +6,9 @@
   <title>{{ if not .IsHome }}{{ .Title }} · {{ end }}{{ .Site.Title }}</title>
   {{ partial "social-meta.html" . }}
   <link rel="canonical" href="{{ .Permalink }}">
+  <link rel="icon" href="{{ "favicon.ico" | relURL }}" sizes="16x16 32x32 48x48">
+  <link rel="icon" type="image/svg+xml" href="{{ "favicon.svg" | relURL }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ "apple-touch-icon.png" | relURL }}">
   <link rel="stylesheet" href="{{ "css/site.css" | relURL }}">
   {{ with .OutputFormats.Get "rss" }}<link rel="alternate" type="application/rss+xml" title="{{ $.Site.Title }}" href="{{ .RelPermalink }}">{{ end }}
   {{ if .Params.math }}

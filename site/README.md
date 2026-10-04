@@ -89,3 +89,25 @@ python tools/validate_site.py "$env:TEMP/nagakagachi-site-preview"
 ## 配色と記事タイトル一覧
 
 暗い配色を標準にしています。記事タイトル一覧はcontent/contents、実験室はcontent/labです。記事タイトル一覧は全公開ブログ記事を1ページに並べ、タイトルの部分一致検索を行います。大文字小文字と全角半角を区別しません。JavaScriptが無効でも全タイトルとリンクが表示され、ブラウザ内検索で探せます。ヘッダーにはX（https://x.com/nagakagachi）とGitHubへのリンクを配置しています。
+
+
+## シンボル画像の再生成
+
+原本は`site/static/images/symbol.svg`です。形・線・色はこのSVGを編集し、派生画像を個別に手修正しません。`tools/generate_site_icons.py`が原本をSVGレンダラーで読み込み、favicon.svg、favicon.ico（16/32/48px）、apple-touch-icon.png（180px）、images/profile-icon.png（1024×1024px、文字なし・丸い切り抜き用の余白付き）、images/profile-header.png（1500×500px、文字なし・シンボルは右寄り）、images/site-card.png（1200×630px）をまとめて生成します。小型アイコンの背景・配置とOGP画像の文字配置はスクリプトで管理し、サイト名・説明はhugo.tomlから読み込みます。
+
+このツールだけPython 3.11以上、Pillow、resvg_pyが必要です。移行・サイト検証ツールには追加依存はありません。Windowsでは游ゴシックのフォントファイルを使用します。他の環境では`--font`と`--bold-font`で日本語フォントの実体パスを指定してください。フォントがない場合は生成を中止し、別フォントへ自動代替しません。
+
+初回準備の例（仮想環境はリポジトリ外）:
+
+```powershell
+python -m venv "$env:TEMP/nagamushi-icons-venv"
+& "$env:TEMP/nagamushi-icons-venv/Scripts/python.exe" -m pip install -r tools/requirements-icons.txt
+```
+
+SVG変更後、リポジトリ直下で実行します。
+
+```powershell
+& "$env:TEMP/nagamushi-icons-venv/Scripts/python.exe" tools/generate_site_icons.py
+```
+
+生成画像の見た目を確認し、原本SVGと派生画像を一緒にコミットします。再生成の確認には`--output-dir`でOS一時ディレクトリを指定できます。Actionsでは再生成せず、コミット済み画像をそのまま公開します。
