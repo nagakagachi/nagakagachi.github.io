@@ -1,0 +1,21 @@
+baseURL = 'https://nagakagachi.github.io/'
+locale = 'ja-JP'
+defaultContentLanguage = 'ja'
+title = 'ながむしメモ'
+timeZone = 'Asia/Tokyo'
+buildDrafts = false
+
+[markup.goldmark.renderer]
+  # Preserve the original image layouts, embeds, and TeX spans.
+  unsafe = true
+
+[pagination]
+  pagerSize = 12
+
+[taxonomies]
+  category = 'categories'
+
+[markup.highlight]
+  style = 'github-dark'
+  guessSyntax = true
+  lineNos = false

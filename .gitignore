@@ -1,0 +1,10 @@
+/site/public/
+/site/resources/
+/site/.hugo_build.lock
+
+# Local migration archive (export, downloaded originals, reports)
+/hatena_backup/
+
+# Keep draft section settings, but not unpublished articles or media
+/site/content/drafts/*
+!/site/content/drafts/_index.md

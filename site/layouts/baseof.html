@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ if not .IsHome }}{{ .Title }} · {{ end }}{{ .Site.Title }}</title>
+  <meta name="description" content="{{ if .IsPage }}{{ .Summary | plainify | truncate 160 }}{{ else }}ながむしメモ{{ end }}">
+  <link rel="canonical" href="{{ .Permalink }}">
+  <link rel="stylesheet" href="{{ "css/site.css" | relURL }}">
+  {{ with .OutputFormats.Get "rss" }}<link rel="alternate" type="application/rss+xml" title="{{ $.Site.Title }}" href="{{ .RelPermalink }}">{{ end }}
+  {{ if .Params.math }}
+  <script src="{{ "js/math-config.js" | relURL }}"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js"></script>
+  {{ end }}
+  {{ if eq .Layout "article-index" }}<script defer src="{{ "js/title-search.js" | relURL }}"></script>{{ end }}
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ</a>
+  <header class="site-header"><div class="shell header-inner">
+    <a class="brand" href="{{ .Site.Home.RelPermalink }}"><img class="brand-symbol" src="{{ "images/symbol.svg" | relURL }}" width="38" height="44" alt=""><span class="brand-copy"><span class="brand-name">{{ .Site.Title }}</span><span class="brand-description">グラフィックスなどのプログラムのメモ</span></span></a>
+    <nav aria-label="メインナビゲーション"><a href="{{ "posts/" | relURL }}">ブログ</a><a href="{{ "lab/" | relURL }}">実験室</a><a href="{{ "categories/" | relURL }}">カテゴリ</a><a href="{{ "contents/" | relURL }}">記事タイトル一覧</a><a href="{{ "index.xml" | relURL }}">RSS</a><a href="https://x.com/nagakagachi">X ↗</a><a href="https://github.com/nagakagachi">GitHub ↗</a></nav>
+  </div></header>
+  <main id="main" class="shell">{{ block "main" . }}{{ end }}</main>
+  <footer class="site-footer shell"><a href="{{ .Site.Home.RelPermalink }}">{{ .Site.Title }}</a></footer>
+</body>
+</html>

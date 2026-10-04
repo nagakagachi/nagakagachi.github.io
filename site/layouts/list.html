@@ -1,0 +1,10 @@
+{{ define "main" }}
+<section class="listing"><h1>{{ if eq .Section "posts" }}ブログ{{ else if eq .Kind "taxonomy" }}カテゴリ{{ else }}{{ .Title }}{{ end }}</h1>
+{{ if eq .Kind "taxonomy" }}
+<ul class="category-list">{{ range .Data.Terms.Alphabetical }}<li><a href="{{ .Page.RelPermalink }}">{{ .Page.Title }}<span>{{ .Count }}記事</span></a></li>{{ end }}</ul>
+{{ else }}
+{{ .Content }}
+{{ $pager := .Paginate .RegularPages.ByDate.Reverse }}
+{{ partial "post-list.html" $pager.Pages }}{{ partial "pagination.html" $pager }}
+{{ end }}</section>
+{{ end }}

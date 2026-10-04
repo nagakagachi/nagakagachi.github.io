@@ -1,0 +1,13 @@
+{{ $content := .Content }}
+{{ range findRE `(?s)<pre\b[^>]*>.*?</pre>` $content }}
+  {{ $block := . }}
+  {{ $code := replaceRE `(?s)^<pre\b[^>]*>|</pre>$` "" $block }}
+  {{ if not (findRE `</?(?:code|span)\b` $code) }}
+    {{ $language := "" }}
+    {{ with findRE `data-lang="[^"]*"` $block 1 }}{{ $language = replaceRE `^data-lang="|"$` "" (index . 0) }}{{ end }}
+    {{ if eq $language "c++" }}{{ $language = "cpp" }}{{ end }}
+    {{ $highlighted := highlight (htmlUnescape $code) $language "" }}
+    {{ $content = replace $content $block $highlighted }}
+  {{ end }}
+{{ end }}
+{{ $content | safeHTML }}

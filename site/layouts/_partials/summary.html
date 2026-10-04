@@ -1,0 +1,3 @@
+{{ $text := .Summary | plainify | htmlUnescape }}
+{{ $text = replaceRE `(?s)\\\(.*?\\\)` "［数式］" $text }}
+{{ return ($text | truncate 130) }}

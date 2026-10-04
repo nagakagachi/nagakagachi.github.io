@@ -1,0 +1,7 @@
+{{ define "main" }}
+<section class="listing home-index"><h1>{{ .Site.Title }}</h1><p class="home-description">グラフィックスなどのプログラムのメモ</p>
+<div class="site-sections"><a href="{{ "posts/" | relURL }}"><h2>ブログ</h2><span>{{ len (where .Site.RegularPages "Section" "posts") }}記事 →</span></a><a href="{{ "lab/" | relURL }}"><h2>実験室</h2><span>{{ if where .Site.RegularPages "Section" "lab" }}公開中の実験室 →{{ else }}準備中 →{{ end }}</span></a></div>
+<section aria-labelledby="recent"><div class="section-heading"><h2 id="recent">最近のブログ記事</h2><a href="{{ "posts/" | relURL }}">すべての記事 →</a></div>
+{{ partial "post-list.html" (first 5 (where .Site.RegularPages.ByDate.Reverse "Section" "posts")) }}
+</section></section>
+{{ end }}

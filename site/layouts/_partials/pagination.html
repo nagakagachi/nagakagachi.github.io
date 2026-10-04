@@ -1,0 +1,1 @@
+{{ if gt .TotalPages 1 }}<nav class="pagination" aria-label="ページ送り">{{ if .HasPrev }}<a href="{{ .Prev.URL }}">← 新しい記事</a>{{ end }}<span>{{ .PageNumber }} / {{ .TotalPages }}</span>{{ if .HasNext }}<a href="{{ .Next.URL }}">以前の記事 →</a>{{ end }}</nav>{{ end }}

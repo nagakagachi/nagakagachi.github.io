@@ -1,0 +1,15 @@
+{{ define "main" }}
+<section class="listing">
+  <h1>記事タイトル一覧</h1>
+  <div id="title-search" class="title-search" hidden>
+    <label for="title-query">記事タイトルを検索</label>
+    <div class="search-inputs"><input id="title-query" type="search" autocomplete="off" placeholder="タイトルに含まれる文字列" aria-controls="title-index"><button id="clear-query" type="button">クリア</button></div>
+  </div>
+  {{ $posts := where .Site.RegularPages.ByDate.Reverse "Section" "posts" }}
+  <p id="search-count" class="search-count" role="status" aria-live="polite">{{ len $posts }}記事</p>
+  <ol id="title-index" class="title-index">{{ range $posts }}
+    <li><time datetime="{{ .Date.Format "2006-01-02" }}">{{ .Date.Format "2006.01.02" }}</time><div><a class="index-title" href="{{ .RelPermalink }}">{{ .Title }}</a>{{ with .Params.hatena_original_url }}<span class="migration-label">はてなブログから移行</span>{{ end }}</div></li>
+  {{ end }}</ol>
+  <p id="no-matches" hidden>一致する記事はありません</p>
+</section>
+{{ end }}
