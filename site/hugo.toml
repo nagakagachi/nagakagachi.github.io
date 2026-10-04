@@ -19,3 +19,6 @@ buildDrafts = false
   style = 'github-dark'
   guessSyntax = true
   lineNos = false
+
+[params]
+description = "グラフィックスなどのプログラムのメモ"

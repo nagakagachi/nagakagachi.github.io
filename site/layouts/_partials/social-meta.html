@@ -1,0 +1,30 @@
+{{ $description := .Site.Params.description }}
+{{ if .IsPage }}
+  {{ $description = .Description | default (partial "summary.html" .) }}
+{{ end }}
+{{ $image := "images/site-card.png" | absURL }}
+{{ $imageAlt := "ながむしメモの蛇のシンボルとサイト名" }}
+{{ $width := 1200 }}{{ $height := 630 }}
+{{ with .Params.image }}
+  {{ with $.Resources.Get . }}
+    {{ $image = .Permalink }}
+    {{ $imageAlt = $.Title }}
+    {{ $width = .Width }}{{ $height = .Height }}
+  {{ end }}
+{{ end }}
+<meta name="description" content="{{ $description }}">
+<meta property="og:site_name" content="{{ .Site.Title }}">
+<meta property="og:title" content="{{ .Title }}">
+<meta property="og:description" content="{{ $description }}">
+<meta property="og:type" content="{{ if and .IsPage (eq .Section "posts") }}article{{ else }}website{{ end }}">
+<meta property="og:url" content="{{ .Permalink }}">
+<meta property="og:image" content="{{ $image }}">
+<meta property="og:image:width" content="{{ $width }}">
+<meta property="og:image:height" content="{{ $height }}">
+<meta property="og:image:alt" content="{{ $imageAlt }}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@nagakagachi">
+<meta name="twitter:title" content="{{ .Title }}">
+<meta name="twitter:description" content="{{ $description }}">
+<meta name="twitter:image" content="{{ $image }}">
+<meta name="twitter:image:alt" content="{{ $imageAlt }}">

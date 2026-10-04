@@ -1,6 +1,7 @@
 ﻿---
 title: "はてなブログからGitHub Pagesへの移行を試してみた"
 date: "2026-10-04T00:00:00+09:00"
+description: "はてなブログの記事と画像をGitHub Pagesへ移行してみた。エクスポート後の画像保存、Markdown整形、HugoとGitHub Actionsによる公開までの流れをまとめたメモ"
 draft: false
 url: "/entry/2026/10/04/hatena-to-github-pages/"
 categories: []
