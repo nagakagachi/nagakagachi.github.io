@@ -1,0 +1,6 @@
+{{ define "main" }}
+<article class="article">
+<header class="article-header"><a class="back-link" href="{{ .RelPermalink }}">← {{ .Title }}</a><h1>{{ .Title }} ソース</h1></header>
+<div class="article-body">{{ range .Resources.Match "*" }}{{ if or (strings.HasSuffix .Name ".js") (strings.HasSuffix .Name ".wgsl") }}<h2>{{ .Name }}</h2>{{ $language := "text" }}{{ if strings.HasSuffix .Name ".js" }}{{ $language = "javascript" }}{{ end }}{{ highlight .Content $language "" }}{{ end }}{{ end }}</div>
+</article>
+{{ end }}

@@ -1,0 +1,1 @@
+<nav class="lab-breadcrumbs" aria-label="現在位置"><a href="{{ .Site.Home.RelPermalink }}">ホーム</a>{{ range .Ancestors.Reverse }}{{ if not .IsHome }} / <a href="{{ .RelPermalink }}">{{ .Title }}</a>{{ end }}{{ end }} / <span aria-current="page">{{ .Title }}</span></nav>

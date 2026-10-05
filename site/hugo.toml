@@ -22,3 +22,9 @@ buildDrafts = false
 
 [params]
 description = "グラフィックスなどのプログラムのメモ"
+
+[outputFormats.Source]
+  mediaType = 'text/html'
+  baseName = 'source'
+  isHTML = true
+  permalinkable = false

@@ -111,3 +111,11 @@ SVG変更後、リポジトリ直下で実行します。
 ```
 
 生成画像の見た目を確認し、原本SVGと派生画像を一緒にコミットします。再生成の確認には`--output-dir`でOS一時ディレクトリを指定できます。Actionsでは再生成せず、コミット済み画像をそのまま公開します。
+
+## 実験ページの追加
+
+実験は`site/content/lab/webgpu/introduction/test00/`のようなページバンドルで管理します。`index.md`に説明と`layout: "experiment"`、`outputs: ["HTML", "Source"]`を指定し、同じフォルダに`main.js`とWGSLなどの実験固有リソースを置きます。JavaScriptからシェーダーを取得する場合は`new URL('./triangle.wgsl', import.meta.url)`のように同じバンドルの相対URLを使います。
+
+共通HTMLは`site/layouts/lab/experiment.html`、ソース閲覧ページは`experiment.source.html`です。ソース閲覧は原本リソースから自動生成され、実験URLの`source.html`に配置されます。GitHubリンクもバンドルのパスから生成します。Test01以降は入門配下に別のフォルダを追加し、説明・コードを編集します。共通テンプレートのボタン・状態表示・CanvasのIDを使い、描画の動作は各実験の`main.js`で定義します。
+
+入門配下の各Testは独立した制作物です。初期化・描画・エラー処理の重複を許容し、他のTestへ依存させません。LLM向けの制作規約は`site/content/lab/AGENTS.md`、説明ページのひな形は`site/archetypes/lab-experiment.md`です。ひな形は下書きが既定で、目的・操作・期待結果・制約を記入してから公開します。実行用コードはTest00を参考に各Test内で制作します。

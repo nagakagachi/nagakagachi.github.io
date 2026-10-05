@@ -10,6 +10,7 @@ class Page(HTMLParser):
     def __init__(self, text):
         super().__init__()
         self.refs = []
+        self.module_refs = []
         self.ids = set()
         self.math = 0
         self.feed(text)
@@ -22,6 +23,8 @@ class Page(HTMLParser):
             self.ids.add(attrs['name'])
         if tag == 'span' and attrs.get('class') == 'math-inline':
             self.math += 1
+        if tag == 'script' and attrs.get('type') == 'module':
+            self.module_refs.append(attrs.get('src', ''))
         fields = ['href'] if tag in ('a', 'link') else ['src', 'poster'] if tag in ('img', 'script', 'iframe', 'video', 'audio', 'source') else []
         for field in fields:
             if attrs.get(field):
@@ -36,6 +39,9 @@ def validate(root, source):
         if path.name == '404.html':
             continue
         origin = 'https://nagakagachi.github.io/' + path.relative_to(root).as_posix()
+        for ref in page.module_refs:
+            if ref and not urlsplit(ref).path.endswith('.js'):
+                errors.append(f'{path.relative_to(root)}: module must reference JavaScript: {ref}')
         for ref in page.refs:
             url = urlsplit(urljoin(origin, ref))
             if url.scheme not in ('http', 'https') or url.netloc != 'nagakagachi.github.io':
