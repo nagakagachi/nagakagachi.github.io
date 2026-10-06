@@ -1,0 +1,5 @@
+<div class="test01-controls">
+<button id="gpu-stop" type="button" disabled>停止</button>
+<label for="gpu-angle">角度 <output id="gpu-angle-value" for="gpu-angle">0°</output></label>
+<input id="gpu-angle" type="range" min="0" max="360" step="1" value="0" disabled>
+</div>

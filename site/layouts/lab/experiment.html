@@ -1,17 +1,20 @@
 {{ define "main" }}
 <article class="article">
 <header class="article-header">{{ partial "lab-breadcrumbs.html" . }}<h1>{{ .Title }}</h1></header>
-<div class="article-body">{{ .Content }}</div>
+{{ $parts := split .Content "<!-- demo -->" }}
+<div class="article-body">{{ index $parts 0 | safeHTML }}</div>
 <section class="webgpu-demo" aria-label="{{ .Params.demo_label | default .Title }}">
-<button id="gpu-start" type="button">実行</button>
-<p id="gpu-status" role="status" aria-live="polite">実行ボタンで開始します</p>
+<button id="gpu-start" type="button">{{ .Params.start_label | default "実行" }}</button>
+{{ with .Resources.Get "controls.txt" }}{{ .Content | safeHTML }}{{ end }}
+<p id="gpu-status" role="status" aria-live="polite">{{ .Params.start_label | default "実行" }}ボタンで開始します</p>
 <canvas id="gpu-canvas" width="960" height="540" aria-label="{{ .Params.canvas_label | default .Title }}"></canvas>
 <dl id="gpu-info"></dl>
 <noscript><p>このデモにはJavaScriptが必要です</p></noscript>
 </section>
+{{ if gt (len $parts) 1 }}<div class="article-body">{{ index $parts 1 | safeHTML }}</div>{{ end }}
 <div class="article-body"><h2>ソース</h2>
 {{ with .OutputFormats.Get "Source" }}<p><a href="{{ .RelPermalink }}">直接表示</a></p>{{ end }}
-<ul>{{ range .Resources.Match "*" }}{{ if or (strings.HasSuffix .Name ".js") (strings.HasSuffix .Name ".wgsl") }}<li>{{ .Name }} · <a href="https://github.com/nagakagachi/nagakagachi.github.io/blob/main/site/content/{{ replace $.File.Dir "\\" "/" }}{{ .Name }}">GitHub</a></li>{{ end }}{{ end }}</ul></div>
+<ul>{{ range .Resources.Match "*" }}{{ if or (strings.HasSuffix .Name ".js") (strings.HasSuffix .Name ".wgsl") (eq .Name "controls.txt") }}<li>{{ .Name }} · <a href="https://github.com/nagakagachi/nagakagachi.github.io/blob/main/site/content/{{ replace $.File.Dir "\\" "/" }}{{ .Name }}">GitHub</a></li>{{ end }}{{ end }}</ul></div>
 </article>
 <script type="module" src="{{ (.Resources.Get "main.js").RelPermalink }}"></script>
 {{ end }}
