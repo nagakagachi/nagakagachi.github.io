@@ -1,0 +1,1 @@
+<label><input id="gpu-blur" type="checkbox" checked disabled> ブラー有効</label>
