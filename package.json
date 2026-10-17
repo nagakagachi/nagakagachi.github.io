@@ -1,0 +1,11 @@
+{
+  "name": "nagamushi-site",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@webgpu/types": "0.1.74",
+    "typescript": "5.9.3"
+  }
+}

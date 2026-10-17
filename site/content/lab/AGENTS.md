@@ -17,14 +17,14 @@ build:
 
 - 実験室 → 技術 → 分類 → 個別実験の階層を保つ。各階層の一覧は`_index.md`、各実験は`test00/index.md`形式のleaf bundleとする。
 - 入門の名前はTest00、Test01のようにする。既存Testを改名・上書きせず、空いている番号を確認する。
-- `index.md`、`main.js`、WGSL、必要な素材を同じ実験フォルダへまとめる。派生HTML・作業ログ・一時ファイルは置かない。
+- `index.md`、`main.ts`（既存Testは`main.js`）、WGSL、必要な素材を同じ実験フォルダへまとめる。派生HTML・作業ログ・一時ファイルは置かない。
 - WebGPUシェーダーは目的を表す名前の`.wgsl`へ分離する。実験内の相対URLは`new URL('./triangle.wgsl', import.meta.url)`のようにモジュール基準で解決する。
 - 新しい説明ページの初期設定は`site/archetypes/lab-experiment.md`を参照する。Test00は動作する例として参照してよいが、複製後は各Testがコードを所有する。
 
 ## 共通表示との契約
 
 - front matterは`layout: "experiment"`、`outputs: ["HTML", "Source"]`とする。
-- 共通テンプレートは`site/layouts/lab/experiment.html`と`experiment.source.html`。実行するエントリーポイントはバンドル内の`main.js`。
+- 共通テンプレートは`site/layouts/lab/experiment.html`と`experiment.source.html`。実行するエントリーポイントはビルド後のバンドル内の`main.js`。Test05以降の原本は`main.ts`とし、`tools/build_site.py`が一時領域でJSへ変換する。生成JSを原本フォルダへ置かない。
 - HTMLの`gpu-start`、`gpu-status`、`gpu-canvas`、`gpu-info`を各実験から利用する。用途が違う実験で無理にこの枠へ合わせず、必要に応じて専用layoutを選ぶ。
 - ソース表示は原本から生成する。表示用コードのコピーや手作業でのHTML化をしない。GitHubリンクと直接表示を提供する。
 - ソース閲覧ページを実行用scriptのsrcへ指定しない。実行用モジュールはJavaScriptファイルを参照する。
@@ -32,7 +32,7 @@ build:
 ## 解説の書き方
 
 - 本文の先頭に「学習用にAgentCodingで生成したデモです」を記載する。
-- DirectX 12ネイティブとHLSL/C++に詳しい読者向けに、説明が必要なHTML・JavaScript・WGSLを1行～数行ずつ抜粋して説明する。全文の逐行解説は不要。
+- DirectX 12ネイティブとHLSL/C++に詳しい読者向けに、説明が必要なHTML・TypeScript・JavaScript・WGSLを1行～数行ずつ抜粋して説明する。全文の逐行解説は不要。
 - 先行Testで説明した箇所は、変更点や特筆すべき点がない限り再説明しない。先行Testへの説明リンクは可。ただしコードの独立性は維持する。
 - コード断片ごとの説明を先に置き、その後にuniformやバインドなど今回の重要な概念を補足する。
 - ネイティブAPIとの比較は役割の近似と明記し、完全な一対一対応と誤解させない。省略した断片はその旨を示し、実装にないAPIや変数を説明しない。
@@ -42,7 +42,8 @@ build:
 - 各ページに目的、操作方法、期待結果、制約を記載する。入門はHLSL/C++に詳しくWeb技術に不慣れな読者を想定し、初出のブラウザAPIを説明する。
 - 未対応、GPU取得失敗、シェーダーエラーをユーザーが読める状態表示にする。GPU機種名が空でも実行失敗と扱わない。
 - 明示的な操作で開始し、不要な連続描画を避ける。継続描画が実験の目的なら停止手段とページ終了時の後片付けを実装する。
-- Hugoのビルドと`tools/validate_site.py`を実行する。出力はOS一時ディレクトリに置く。
+- `npm ci`で固定済み依存を導入し、`python tools/build_site.py --destination <OS一時領域の専用出力先>`を使う。型チェック失敗時は公開ビルドを止める。`any`、型アサーション、非nullアサーション、診断抑制で安易に回避しない。
+- 上記ビルド経由でHugoと`tools/validate_site.py`を実行する。出力はOS一時ディレクトリに置く。
 - ブラウザで実行・再実行と期待結果、ソース表示の日本語、各階層のリンクを確認する。コードやシェーダーの移動後も必ず実行する。
 - ブラウザで確認できなかった場合は、ビルド成功だけを動作確認として報告せず、未確認の範囲を明示する。
 - 入門デモのコードや説明の変更に、コミット・pushの許可は含まれない。公開はユーザーの依頼に従う。

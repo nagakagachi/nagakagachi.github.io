@@ -8,3 +8,6 @@
 # Keep draft section settings, but not unpublished articles or media
 /site/content/drafts/*
 !/site/content/drafts/_index.md
+
+# TypeScript development dependencies
+/node_modules/

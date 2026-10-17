@@ -14,7 +14,7 @@
 {{ if gt (len $parts) 1 }}<div class="article-body">{{ index $parts 1 | safeHTML }}</div>{{ end }}
 <div class="article-body"><h2>ソース</h2>
 {{ with .OutputFormats.Get "Source" }}<p><a href="{{ .RelPermalink }}">直接表示</a></p>{{ end }}
-<ul>{{ range .Resources.Match "*" }}{{ if or (strings.HasSuffix .Name ".js") (strings.HasSuffix .Name ".wgsl") (eq .Name "controls.txt") }}<li>{{ .Name }} · <a href="https://github.com/nagakagachi/nagakagachi.github.io/blob/main/site/content/{{ replace $.File.Dir "\\" "/" }}{{ .Name }}">GitHub</a></li>{{ end }}{{ end }}</ul></div>
+<ul>{{ range .Resources.Match "*" }}{{ $generated := and (strings.HasSuffix .Name ".js") ($.Resources.Get (replaceRE `\.js$` ".ts" .Name)) }}{{ if and (not $generated) (or (strings.HasSuffix .Name ".ts") (strings.HasSuffix .Name ".js") (strings.HasSuffix .Name ".wgsl") (eq .Name "controls.txt")) }}<li>{{ .Name }} · <a href="https://github.com/nagakagachi/nagakagachi.github.io/blob/main/site/content/{{ replace $.File.Dir "\\" "/" }}{{ .Name }}">GitHub</a></li>{{ end }}{{ end }}</ul></div>
 </article>
 <script type="module" src="{{ (.Resources.Get "main.js").RelPermalink }}"></script>
 {{ end }}

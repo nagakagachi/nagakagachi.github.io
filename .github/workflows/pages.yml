@@ -3,9 +3,9 @@ name: Build and publish site
 on:
   push:
     branches: [main]
-    paths: ['site/**', 'tools/validate_site.py', '.github/workflows/pages.yml']
+    paths: ['site/**', 'tools/validate_site.py', 'tools/build_site.py', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/pages.yml']
   pull_request:
-    paths: ['site/**', 'tools/validate_site.py', '.github/workflows/pages.yml']
+    paths: ['site/**', 'tools/validate_site.py', 'tools/build_site.py', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -23,6 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
       - name: Install Hugo
         shell: bash
         run: |
@@ -36,9 +41,7 @@ jobs:
           tar -xzf "$archive" hugo
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Build
-        run: hugo --source site --destination "$RUNNER_TEMP/site-public" --cacheDir "$RUNNER_TEMP/hugo-cache" --noBuildLock --gc --minify --panicOnWarning
-      - name: Validate output
-        run: python3 tools/validate_site.py "$RUNNER_TEMP/site-public"
+        run: python3 tools/build_site.py --destination "$RUNNER_TEMP/site-public"
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5

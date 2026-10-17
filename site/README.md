@@ -45,13 +45,13 @@ python tools/migrate_hatena.py
 
 Hugo 0.167.0でビルド検証済みです。記事一覧、カテゴリ、ページ送り、RSS、前後の記事へのリンク、404ページ、数式表示、コードの色分け、スマートフォン表示を実装しています。テンプレートは`layouts/`、CSSと数式設定は`static/`です。
 
-HugoをPATH上に用意した後、リポジトリ直下で実行します。
+Hugo 0.167.0、Node.js 24、Python 3.11以上を用意し、初回はリポジトリ直下で`npm ci`を実行します。開発依存はtypescript 5.9.3と@webgpu/types 0.1.74のみで、バンドラーや実行時ライブラリは追加していません。以後は次で型チェック・JS生成・Hugoビルド・検証・プレビュー配信を行います。
 
 ```powershell
 ./tools/preview_site.ps1
 ```
 
-`http://localhost:1313/`で確認できます。手元での編集がプレビューに反映されます。終了はCtrl+Cです。下書きも確認する場合は`-IncludeDrafts`を指定します。下書き一覧自体は生成しないため、記事のfront matterにあるURLを直接開きます。
+`http://localhost:1313/`で確認できます。自動監視・自動更新は行いません。編集後はCtrl+Cで配信を終了して同じコマンドを再実行し、ブラウザを更新します。終了はCtrl+Cです。下書きも確認する場合は`-IncludeDrafts`を指定します。下書き一覧自体は生成しないため、記事のfront matterにあるURLを直接開きます。
 
 今回の確認に使った実行ファイルは公式リリースからOS一時ディレクトリへ取得し、公式のSHA-256と照合しました。グローバルなインストールやPATH変更はしていません。
 
@@ -64,13 +64,13 @@ HugoをPATH上に用意した後、リポジトリ直下で実行します。
 ビルドと検証の例（出力はOS一時ディレクトリ）:
 
 ```powershell
-hugo --source site --destination "$env:TEMP/nagakagachi-site-preview" --cacheDir "$env:TEMP/nagakagachi-hugo-cache" --noBuildLock --minify --panicOnWarning
-python tools/validate_site.py "$env:TEMP/nagakagachi-site-preview"
+python tools/build_site.py --destination "$env:TEMP/nagakagachi-site-preview"
+# HugoがPATH上にない場合は --hugo <実行ファイルのパス> を追加
 ```
 
 `validate_site.py`は公開記事の存在、下書きの除外、ローカルリンク・画像・見出しアンカー、元記事へのリンク、バックアップ等の非混入を検査します。外部サイトや動画サービスの稼働状態は検査対象外です。
 
-`.github/workflows/pages.yml`で、PR時はビルド・検証、mainへのpush時はビルド・検証・公開を行います。Hugoのバージョンを固定し、取得時にチェックサムを確認します。Actionsの構文はactionlintで検査済みですが、GitHub上での実行は未確認です。
+`.github/workflows/pages.yml`で、PR時はビルド・検証、mainへのpush時はビルド・検証・公開を行います。Hugoのバージョンを固定し、取得時にチェックサムを確認します。TypeScript導入後も同じビルド入口を使用します。
 
 公開開始時はリポジトリのSettings → Pages → SourceをGitHub Actionsに設定してから、変更をcommit/pushします。公式説明: https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages
 
@@ -114,9 +114,11 @@ SVG変更後、リポジトリ直下で実行します。
 
 ## 実験ページの追加
 
-実験は`site/content/lab/webgpu/introduction/test00/`のようなページバンドルで管理します。`index.md`に説明と`layout: "experiment"`、`outputs: ["HTML", "Source"]`を指定し、同じフォルダに`main.js`とWGSLなどの実験固有リソースを置きます。JavaScriptからシェーダーを取得する場合は`new URL('./triangle.wgsl', import.meta.url)`のように同じバンドルの相対URLを使います。
+実験は`site/content/lab/webgpu/introduction/test00/`のようなページバンドルで管理します。`index.md`に説明と`layout: "experiment"`、`outputs: ["HTML", "Source"]`を指定し、同じフォルダに`main.ts`（Test00〜04は`main.js`）とWGSLなどの実験固有リソースを置きます。JavaScriptからシェーダーを取得する場合は`new URL('./triangle.wgsl', import.meta.url)`のように同じバンドルの相対URLを使います。
 
-共通HTMLは`site/layouts/lab/experiment.html`、ソース閲覧ページは`experiment.source.html`です。ソース閲覧は原本リソースから自動生成され、実験URLの`source.html`に配置されます。GitHubリンクもバンドルのパスから生成します。Test01以降は入門配下に別のフォルダを追加し、説明・コードを編集します。共通テンプレートのボタン・状態表示・CanvasのIDを使い、描画の動作は各実験の`main.js`で定義します。
+共通HTMLは`site/layouts/lab/experiment.html`、ソース閲覧ページは`experiment.source.html`です。ソース閲覧は原本リソースから自動生成され、実験URLの`source.html`に配置されます。GitHubリンクもバンドルのパスから生成します。Test01以降は入門配下に別のフォルダを追加し、説明・コードを編集します。共通テンプレートのボタン・状態表示・CanvasのIDを使い、描画の動作は各実験の原本コードで定義します。Test05以降は`main.ts`をstrictモードで型チェックしてJSへ変換します。ソース表示・GitHubリンクはTS原本を参照し、生成JSのリンクは表示しません。
+
+`tools/build_site.py`は正本である`site/`からOS一時領域へ作業コピーを作成し、そのcontent内へTSの生成JSを置いてHugoを実行します。一時コピーは終了時に削除します。公開出力もリポジトリ外の専用ディレクトリを指定します。`node_modules/`と生成JSはコミットしません。型チェックだけなら`npm run typecheck`を使えます。
 
 入門配下の各Testは独立した制作物です。初期化・描画・エラー処理の重複を許容し、他のTestへ依存させません。LLM向けの制作規約は`site/content/lab/AGENTS.md`、説明ページのひな形は`site/archetypes/lab-experiment.md`です。ひな形は下書きが既定で、目的・操作・期待結果・制約を記入してから公開します。実行用コードはTest00を参考に各Test内で制作します。
 

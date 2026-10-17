@@ -1,0 +1,8 @@
+<style>
+.test05-controls label{display:inline-flex;align-items:center;gap:8px}.test05-controls input[type=checkbox]{flex:none;min-width:0;width:auto}
+</style>
+<div class="test01-controls test05-controls">
+<button id="gpu-stop" type="button" disabled>停止</button>
+<label><input id="gpu-depth" type="checkbox" checked disabled> Depth有効</label>
+<label><input id="gpu-visualize" type="checkbox" disabled> 深度を表示</label>
+</div>
