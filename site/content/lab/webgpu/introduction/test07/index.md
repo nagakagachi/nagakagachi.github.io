@@ -1,5 +1,5 @@
 ﻿---
-title: "Test07-Directional LightとLambert・GGX"
+title: "Test07-Directional Lightとライティング"
 layout: "experiment"
 outputs: ["HTML", "Source"]
 description: "球メッシュを平行光源で照らし、Lambert拡散反射とGGX鏡面反射を確認するWebGPU実験"

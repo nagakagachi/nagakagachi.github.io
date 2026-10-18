@@ -1,0 +1,13 @@
+<style>
+.test08-controls{display:grid;grid-template-columns:minmax(10em,auto) minmax(100px,1fr) 4.5em;gap:12px;align-items:center;margin:20px 0;max-width:700px}.test08-controls input[type=range]{width:100%;accent-color:var(--accent)}.test08-controls output{text-align:right;font-variant-numeric:tabular-nums}.test08-controls .wide{grid-column:1/-1}.test08-controls select{font:inherit;background:var(--paper);color:var(--ink)}@media(max-width:480px){.test08-controls{grid-template-columns:minmax(0,1fr) 4.5em}.test08-controls>label{grid-column:1/-1}}
+</style>
+<div class="test08-controls">
+<div class="wide"><button id="gpu-stop" type="button" disabled>停止</button> <label><input id="gpu-shadow" type="checkbox" checked disabled> 影を表示</label></div>
+<label for="gpu-pcf">PCF</label><select id="gpu-pcf" disabled><option value="0">なし（1点）</option><option value="1" selected>3×3</option><option value="2">5×5</option></select><span></span>
+<label for="gpu-depth-bias">深度バイアス</label><input id="gpu-depth-bias" type="range" min="0" max="0.01" step="0.0001" value="0.001" disabled><output id="gpu-depth-bias-value" for="gpu-depth-bias">0.0010</output>
+<label for="gpu-normal-bias">法線バイアス</label><input id="gpu-normal-bias" type="range" min="0" max="0.2" step="0.005" value="0.02" disabled><output id="gpu-normal-bias-value" for="gpu-normal-bias">0.020</output>
+<label for="gpu-azimuth">ライト方位角</label><input id="gpu-azimuth" type="range" min="-180" max="180" step="1" value="-35" disabled><output id="gpu-azimuth-value" for="gpu-azimuth">-35°</output>
+<label for="gpu-elevation">ライト仰角</label><input id="gpu-elevation" type="range" min="-90" max="90" step="1" value="50" disabled><output id="gpu-elevation-value" for="gpu-elevation">50°</output>
+<label for="gpu-view">表示</label><select id="gpu-view" disabled><option value="scene">シーン</option><option value="shadow">Shadow Map</option></select><span></span>
+<div class="wide"><button id="gpu-reset" type="button" disabled>初期値に戻す</button> <button id="gpu-camera-reset" type="button" disabled>カメラを戻す</button></div>
+</div>
