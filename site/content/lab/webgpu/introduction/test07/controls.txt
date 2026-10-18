@@ -1,0 +1,13 @@
+<style>
+.test07-controls{display:grid;grid-template-columns:minmax(9em,auto) minmax(120px,1fr) 4em;gap:12px;align-items:center;margin:20px 0;max-width:650px}.test07-controls input[type=range]{width:100%;accent-color:var(--accent)}.test07-controls output{text-align:right;font-variant-numeric:tabular-nums}.test07-controls .wide{grid-column:1/-1}.test07-controls select{font:inherit;background:var(--paper);color:var(--ink)}
+@media(max-width:480px){.test07-controls{grid-template-columns:minmax(0,1fr) 4em}.test07-controls>label{grid-column:1/-1}}
+</style>
+<div class="test07-controls">
+<label class="wide"><input id="gpu-albedo" type="checkbox" checked disabled> アルベドテクスチャ</label>
+<label for="gpu-roughness">Roughness</label><input id="gpu-roughness" type="range" min="0.05" max="1" step="0.01" value="0.35" disabled><output id="gpu-roughness-value" for="gpu-roughness">0.35</output>
+<label for="gpu-metallic">Metallic</label><input id="gpu-metallic" type="range" min="0" max="1" step="0.01" value="0" disabled><output id="gpu-metallic-value" for="gpu-metallic">0.00</output>
+<label for="gpu-azimuth">ライト方位角</label><input id="gpu-azimuth" type="range" min="-180" max="180" step="1" value="-35" disabled><output id="gpu-azimuth-value" for="gpu-azimuth">-35°</output>
+<label for="gpu-elevation">ライト仰角</label><input id="gpu-elevation" type="range" min="-90" max="90" step="1" value="35" disabled><output id="gpu-elevation-value" for="gpu-elevation">35°</output>
+<label for="gpu-view">表示</label><select id="gpu-view" disabled><option value="0">合成</option><option value="1">拡散のみ</option><option value="2">鏡面のみ</option></select><span></span>
+<div class="wide"><button id="gpu-reset" type="button" disabled>初期値に戻す</button></div>
+</div>
