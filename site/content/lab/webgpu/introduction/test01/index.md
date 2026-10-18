@@ -1,5 +1,5 @@
 ﻿---
-title: "Test01"
+title: "Test01-Uniform Bufferと回転"
 layout: "experiment"
 outputs: ["HTML", "Source"]
 start_label: "開始"

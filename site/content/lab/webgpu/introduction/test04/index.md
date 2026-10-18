@@ -1,5 +1,5 @@
 ﻿---
-title: "Test04"
+title: "Test04-Compute Shaderと残像"
 layout: "experiment"
 outputs: ["HTML", "Source"]
 start_label: "開始"

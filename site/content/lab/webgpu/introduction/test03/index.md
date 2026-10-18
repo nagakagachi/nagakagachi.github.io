@@ -1,5 +1,5 @@
 ﻿---
-title: "Test03"
+title: "Test03-オフスクリーン描画とガウスブラー"
 layout: "experiment"
 outputs: ["HTML", "Source"]
 description: "オフスクリーン描画と3×3ガウスブラーを組み合わせるWebGPUの2パス実験"

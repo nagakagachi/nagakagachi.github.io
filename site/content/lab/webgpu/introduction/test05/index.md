@@ -1,5 +1,5 @@
 ﻿---
-title: "Test05"
+title: "Test05-Reversed ZとDepth Buffer"
 layout: "experiment"
 outputs: ["HTML", "Source"]
 start_label: "開始"

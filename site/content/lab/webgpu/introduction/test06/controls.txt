@@ -1,0 +1,7 @@
+<div class="test01-controls">
+<button id="gpu-stop" type="button" disabled>停止</button>
+<label for="gpu-filter">フィルタ</label>
+<select id="gpu-filter" disabled><option value="linear">Linear</option><option value="nearest">Nearest</option></select>
+<label for="gpu-view">表示</label>
+<select id="gpu-view" disabled><option value="cube">Cube</option><option value="texture">生成テクスチャ</option></select>
+</div>

@@ -16,7 +16,7 @@ build:
 ## 配置と命名
 
 - 実験室 → 技術 → 分類 → 個別実験の階層を保つ。各階層の一覧は`_index.md`、各実験は`test00/index.md`形式のleaf bundleとする。
-- 入門の名前はTest00、Test01のようにする。既存Testを改名・上書きせず、空いている番号を確認する。
+- 入門のページタイトルは「Test00-三角形の描画」のように番号と内容を併記する。フォルダ名とURLはtest00形式のまま保ち、既存Testを上書きせず、空いている番号を確認する。
 - `index.md`、`main.ts`（既存Testは`main.js`）、WGSL、必要な素材を同じ実験フォルダへまとめる。派生HTML・作業ログ・一時ファイルは置かない。
 - WebGPUシェーダーは目的を表す名前の`.wgsl`へ分離する。実験内の相対URLは`new URL('./triangle.wgsl', import.meta.url)`のようにモジュール基準で解決する。
 - 新しい説明ページの初期設定は`site/archetypes/lab-experiment.md`を参照する。Test00は動作する例として参照してよいが、複製後は各Testがコードを所有する。

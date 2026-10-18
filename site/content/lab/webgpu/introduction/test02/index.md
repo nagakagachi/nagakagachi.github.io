@@ -1,5 +1,5 @@
 ﻿---
-title: "Test02"
+title: "Test02-頂点・インデックスバッファ"
 layout: "experiment"
 outputs: ["HTML", "Source"]
 description: "Vertex BufferとIndex Bufferで4頂点の四角形を描画するWebGPUの実験"

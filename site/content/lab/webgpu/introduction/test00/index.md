@@ -1,5 +1,5 @@
 ﻿---
-title: "Test00"
+title: "Test00-三角形の描画"
 layout: "experiment"
 outputs: ["HTML", "Source"]
 demo_label: "WebGPU三角形デモ"
