@@ -85,8 +85,8 @@ fn metabolize(@builtin(global_invocation_id) id: vec3u) {
   let i=id.x; if(i>=settings.world.w) { return; }
   let plant=plants[i]; energies[i]=-1.0;
   if(plant.energy<=0.0 || !attached(i)) { return; }
-  let lifetime=65.0+random(plant.colony*31u+plant.birth*17u)*80.0;
-  if(plant.age+settings.clock.x>=lifetime) { return; }
+  let lifetime=settings.clock.w;
+  if(lifetime>0.0 && plant.age+settings.clock.x>=lifetime) { return; }
   let p=vec3i(coordinate(i));
   var exchange=0.0;
   for(var k=0u;k<6u;k++) {

@@ -9,5 +9,6 @@
 <button id="gpu-regenerate" type="button" disabled>再生成</button>
 <button id="gpu-random-seed" type="button">別シード</button>
 <label>表示 <select id="gpu-view" disabled><option value="0">植物</option><option value="1">エネルギー</option><option value="2">日照</option></select></label>
+<label>寿命 <input id="gpu-lifetime" type="range" min="0" max="600" step="5" value="105"><output id="gpu-lifetime-value">105秒</output>（0で無効）</label>
 <label>時間倍率 <input id="gpu-speed" type="range" min="1" max="16" step="1" value="1" disabled><output id="gpu-speed-value">1×</output></label>
 </div>

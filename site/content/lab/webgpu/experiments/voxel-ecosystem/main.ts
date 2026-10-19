@@ -10,6 +10,8 @@ const stop = element('#gpu-stop', HTMLButtonElement);
 const reset = element('#gpu-reset', HTMLButtonElement);
 const cameraReset = element('#gpu-camera-reset', HTMLButtonElement);
 const speed = element('#gpu-speed', HTMLInputElement);
+const lifetimeControl=element('#gpu-lifetime',HTMLInputElement);
+const lifetimeValue=element('#gpu-lifetime-value',HTMLOutputElement);
 const seedControl=element('#gpu-seed',HTMLInputElement);
 const regenerate=element('#gpu-regenerate',HTMLButtonElement);
 const randomSeed=element('#gpu-random-seed',HTMLButtonElement);
@@ -142,7 +144,7 @@ async function initialize(token: number): Promise<Demo> {
     const workgroups=Math.ceil(cellCount/64),columns=Math.ceil(world.x*world.z/64);
     function writeSettings(): void {
       floats.set(viewProjection()); integers.set([world.x,world.y,world.z,cellCount],16);
-      floats.set([stepSeconds,steps,steps*stepSeconds,0],20);
+      floats.set([stepSeconds,steps,steps*stepSeconds,Number(lifetimeControl.value)],20);
       integers.set([Number(viewControl.value),activeSeed,0,0],24);
       device.queue.writeBuffer(uniform,0,settings);
     }
@@ -219,6 +221,7 @@ randomSeed.addEventListener('click',()=>{
   if(demo)regenerateWorld();
 });
 viewControl.addEventListener('change',()=>{demo?.draw();});
+lifetimeControl.addEventListener('input',()=>{lifetimeValue.value=Number(lifetimeControl.value)===0?'無効':`${lifetimeControl.value}秒`;});
 speed.addEventListener('input',()=>{speedValue.value=`${speed.value}×`;});
 cameraReset.addEventListener('click',()=>{camera={...initialCamera};demo?.draw();});
 const pointers=new Map<number,{x:number;y:number}>();
