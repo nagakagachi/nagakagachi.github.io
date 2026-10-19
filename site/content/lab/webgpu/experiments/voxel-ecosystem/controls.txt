@@ -1,0 +1,9 @@
+<style>
+.voxel-controls{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin:20px 0}.voxel-controls input{accent-color:var(--accent)}.voxel-controls label{display:flex;gap:8px;align-items:center}
+</style>
+<div class="voxel-controls">
+<button id="gpu-stop" type="button" disabled>停止</button>
+<button id="gpu-reset" type="button" disabled>最初から</button>
+<button id="gpu-camera-reset" type="button" disabled>カメラを戻す</button>
+<label>時間倍率 <input id="gpu-speed" type="range" min="1" max="4" step="1" value="1" disabled><output id="gpu-speed-value">1×</output></label>
+</div>
