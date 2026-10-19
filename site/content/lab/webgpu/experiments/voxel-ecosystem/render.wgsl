@@ -25,6 +25,8 @@ struct Vertex { @builtin(position) clip: vec4f, @location(0) normal: vec3f, @loc
     let hue=random(plant.colony*71u);
     color=mix(vec3f(0.12,0.24,0.045),vec3f(0.10,0.52,0.20),plant.energy/maximumEnergy);
     color*=0.8+0.4*hue;
+    if(settings.display.x==3u) { color=mix(vec3f(0.08,0.3,0.85),vec3f(0.85,0.15,0.06),plant.upProbability); }
+    if(settings.display.x==4u) { color=mix(vec3f(0.15,0.2,0.3),vec3f(0.85,0.65,0.12),min(f32(plant.generation)/10.0,1.0)); }
     if(settings.display.x==1u) { color=mix(vec3f(0.6,0.07,0.025),vec3f(0.1,0.75,0.25),plant.energy/maximumEnergy); }
   }
   if(settings.display.x==2u) { color=select(vec3f(0.09,0.12,0.19),vec3f(0.85,0.7,0.2),sunlight[i]!=0u); }

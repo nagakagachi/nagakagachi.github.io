@@ -10,6 +10,8 @@ const stop = element('#gpu-stop', HTMLButtonElement);
 const reset = element('#gpu-reset', HTMLButtonElement);
 const cameraReset = element('#gpu-camera-reset', HTMLButtonElement);
 const speed = element('#gpu-speed', HTMLInputElement);
+const spawnRateControl=element('#gpu-spawn-rate',HTMLInputElement);
+const spawnRateValue=element('#gpu-spawn-rate-value',HTMLOutputElement);
 const lifetimeControl=element('#gpu-lifetime',HTMLInputElement);
 const lifetimeValue=element('#gpu-lifetime-value',HTMLOutputElement);
 const seedControl=element('#gpu-seed',HTMLInputElement);
@@ -103,25 +105,26 @@ async function initialize(token: number): Promise<Demo> {
     device.pushErrorScope('validation');
     function buffer(size: number,usage: GPUBufferUsageFlags): GPUBuffer {const b=device.createBuffer({size,usage});buffers.push(b);return b;}
     const terrain=buffer(cellCount*4,GPUBufferUsage.STORAGE);
-    const plants=[buffer(cellCount*24,GPUBufferUsage.STORAGE),buffer(cellCount*24,GPUBufferUsage.STORAGE)];
+    const plants=[buffer(cellCount*32,GPUBufferUsage.STORAGE),buffer(cellCount*32,GPUBufferUsage.STORAGE)];
+    const seeds=buffer(cellCount*4,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST);
     const sunlight=buffer(cellCount*4,GPUBufferUsage.STORAGE);
     const energies=buffer(cellCount*4,GPUBufferUsage.STORAGE);
     const visible=buffer(cellCount*4,GPUBufferUsage.STORAGE);
     const indirect=buffer(16,GPUBufferUsage.STORAGE|GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_DST);
-    const uniform=buffer(112,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+    const uniform=buffer(128,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
     const simulationLayout=device.createBindGroupLayout({entries:[
       {binding:0,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}},
-      ...[1,2,3,4,5].map(binding=>({binding,visibility:GPUShaderStage.COMPUTE,buffer:{type:binding===2?'read-only-storage':'storage'}} satisfies GPUBindGroupLayoutEntry)),
+      ...[1,2,3,4,5,6].map(binding=>({binding,visibility:GPUShaderStage.COMPUTE,buffer:{type:binding===2?'read-only-storage':'storage'}} satisfies GPUBindGroupLayoutEntry)),
     ]});
     const simulationPipelineLayout=device.createPipelineLayout({bindGroupLayouts:[simulationLayout]});
     async function compute(entryPoint: string): Promise<GPUComputePipeline> {
       return device.createComputePipelineAsync({layout:simulationPipelineLayout,compute:{module:simulation,entryPoint}});
     }
     const initializePipeline=await compute('initialize'), lightPipeline=await compute('illuminate');
-    const seedPipeline=await compute('seedPlants');
+    const seedPipeline=await compute('seedPlants'), dispersePipeline=await compute('disperse');
     const energyPipeline=await compute('metabolize'), growthPipeline=await compute('grow');
     const simulationGroups=plants.map((old,index)=>device.createBindGroup({layout:simulationLayout,
-      entries:[uniform,terrain,old,plants[1-index],sunlight,energies].map((b,binding)=>({binding,resource:{buffer:b}}))}));
+      entries:[uniform,terrain,old,plants[1-index],sunlight,energies,seeds].map((b,binding)=>({binding,resource:{buffer:b}}))}));
     const compactPipeline=await device.createComputePipelineAsync({layout:'auto',compute:{module:surface,entryPoint:'compact'}});
     const compactGroups=plants.map(plant=>device.createBindGroup({layout:compactPipeline.getBindGroupLayout(0),entries:[uniform,terrain,plant,visible,indirect].map((b,binding)=>({binding,resource:{buffer:b}}))}));
     const renderLayout=device.createBindGroupLayout({entries:[
@@ -139,13 +142,14 @@ async function initialize(token: number): Promise<Demo> {
     depth=device.createTexture({size:[canvas.width,canvas.height],format:'depth32float',usage:GPUTextureUsage.RENDER_ATTACHMENT});
     const depthView=depth.createView();
     const validation=await device.popErrorScope(); check(); if(validation) throw new Error(validation.message);
-    const settings=new ArrayBuffer(112), floats=new Float32Array(settings), integers=new Uint32Array(settings);
+    const settings=new ArrayBuffer(128), floats=new Float32Array(settings), integers=new Uint32Array(settings);
     let current=1, surfaceDirty=true;
     const workgroups=Math.ceil(cellCount/64),columns=Math.ceil(world.x*world.z/64);
     function writeSettings(): void {
       floats.set(viewProjection()); integers.set([world.x,world.y,world.z,cellCount],16);
       floats.set([stepSeconds,steps,steps*stepSeconds,Number(lifetimeControl.value)],20);
       integers.set([Number(viewControl.value),activeSeed,0,0],24);
+      floats.set([Number(spawnRateControl.value)/100,0,0,0],28);
       device.queue.writeBuffer(uniform,0,settings);
     }
     function resetWorld(): void {
@@ -159,10 +163,11 @@ async function initialize(token: number): Promise<Demo> {
       pass.end();device.queue.submit([encoder.finish()]);
     }
     function step(): void {
-      writeSettings();const encoder=device.createCommandEncoder(),pass=encoder.beginComputePass();
+      writeSettings();const encoder=device.createCommandEncoder();encoder.clearBuffer(seeds);const pass=encoder.beginComputePass();
       pass.setBindGroup(0,simulationGroups[current]);
       pass.setPipeline(lightPipeline);pass.dispatchWorkgroups(columns);
       pass.setPipeline(energyPipeline);pass.dispatchWorkgroups(workgroups);
+      pass.setPipeline(dispersePipeline);pass.dispatchWorkgroups(workgroups);
       pass.setPipeline(growthPipeline);pass.dispatchWorkgroups(workgroups);
       current=1-current;
       pass.setBindGroup(0,simulationGroups[current]);pass.setPipeline(lightPipeline);pass.dispatchWorkgroups(columns);
@@ -180,7 +185,7 @@ async function initialize(token: number): Promise<Demo> {
       pass.setPipeline(boundsPipeline);pass.draw(24);pass.end();device.queue.submit([encoder.finish()]);viewDirty=false;
     }
     info.replaceChildren();
-    for(const [label,value] of [['空間','128×64×128 / 1,048,576セル'],['シード',String(activeSeed)],['更新','固定0.25秒 / 日照・エネルギー・成長をGPUで更新'],['状態','植物24バイト×2面 / 毎フレームのCPU読出しなし'],['GPU',adapter.info.description || adapter.info.device || 'ブラウザから機種名は提供されていません']]) {
+    for(const [label,value] of [['空間','128×64×128 / 1,048,576セル'],['シード',String(activeSeed)],['更新','固定0.25秒 / 日照・エネルギー・成長をGPUで更新'],['状態','植物32バイト×2面 / 毎フレームのCPU読出しなし'],['GPU',adapter.info.description || adapter.info.device || 'ブラウザから機種名は提供されていません']]) {
       const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;if(label==='シード')dd.id='gpu-seed-info';info.append(dt,dd);
     }
     resetWorld();draw();return {step,draw,reset:resetWorld,dispose};
@@ -221,6 +226,7 @@ randomSeed.addEventListener('click',()=>{
   if(demo)regenerateWorld();
 });
 viewControl.addEventListener('change',()=>{demo?.draw();});
+spawnRateControl.addEventListener('input',()=>{spawnRateValue.value=Number(spawnRateControl.value)===0?'無効':`${Number(spawnRateControl.value).toFixed(4)}% / 秒 / セル`;});
 lifetimeControl.addEventListener('input',()=>{lifetimeValue.value=Number(lifetimeControl.value)===0?'無効':`${lifetimeControl.value}秒`;});
 speed.addEventListener('input',()=>{speedValue.value=`${speed.value}×`;});
 cameraReset.addEventListener('click',()=>{camera={...initialCamera};demo?.draw();});

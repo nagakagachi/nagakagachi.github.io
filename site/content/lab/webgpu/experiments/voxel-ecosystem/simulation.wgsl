@@ -3,6 +3,7 @@
 @group(0) @binding(3) var<storage,read_write> nextPlants: array<Plant>;
 @group(0) @binding(4) var<storage,read_write> sunlight: array<u32>;
 @group(0) @binding(5) var<storage,read_write> energies: array<f32>;
+@group(0) @binding(6) var<storage,read_write> seeds: array<atomic<u32>>;
 // Seeded value noise and analytic tunnel fields; no per-map coordinate presets.
 fn lattice(p: vec3i, salt: u32) -> f32 {
   let key=(bitcast<u32>(p.x)*73856093u) ^ (bitcast<u32>(p.y)*19349663u) ^ (bitcast<u32>(p.z)*83492791u);
@@ -57,7 +58,7 @@ fn seedPlants(@builtin(global_invocation_id) id: vec3u) {
   let i=id.x;if(i>=settings.world.w) { return; }
   let p=coordinate(i);
   if(terrain[i]==0u && p.y>0u && terrain[address(p-vec3u(0,1,0))]!=0u && random(i ^ settings.display.y)<0.004) {
-    nextPlants[i]=Plant(5.0,0.0,0u,1u,0u,i+1u);
+    nextPlants[i]=Plant(5.0,0.0,0u,1u,0u,i+1u,random(i ^ settings.display.y ^ 9127u),0u);
   }
 }
 // One invocation owns an entire vertical column; no cross-workgroup synchronization.
@@ -104,13 +105,10 @@ fn proposal(i: u32) -> u32 {
   if(plants[i].energy<=0.0 || energies[i]<maximumEnergy) { return settings.world.w; }
   let p=vec3i(coordinate(i));
   let seed=i*131u+u32(settings.clock.y)*977u+settings.display.y;
-  let first=u32(random(seed)*7.0);
-  // Up has three tickets; each horizontal direction has one.
-  for(var n=0u;n<7u;n++) {
-    let ticket=(first+n)%7u;
-    var direction=0u;
-    if(ticket>=3u) { direction=ticket-2u; }
-    let q=p+neighbor(direction); if(!inside(q)) { continue; }
+  var direction=0u;
+  if(random(seed)>=plants[i].upProbability) { direction=1u+u32(random(seed ^ 5171u)*4.0); }
+  let q=p+neighbor(direction);
+  if(inside(q)) {
     let destination=address(vec3u(q));
     if(terrain[destination]==0u && plants[destination].energy<=0.0) { return destination; }
   }
@@ -128,6 +126,34 @@ fn winner(destination: u32) -> u32 {
   }
   return best;
 }
+// Seed paths and eligibility use one immutable snapshot.
+fn seedTarget(i: u32) -> u32 {
+  if(plants[i].energy<=0.0 || energies[i]<8.0 || sunlight[i]==0u) { return settings.world.w; }
+  let key=i*197u+u32(settings.clock.y)*1237u+settings.display.y;
+  if(random(key ^ 9719u)>=0.05*settings.clock.x) { return settings.world.w; }
+  var p=vec3i(coordinate(i));
+  if(random(key ^ 373u)<0.3) { p+=neighbor(1u+u32(random(key ^ 817u)*4.0)); }
+  if(!inside(p)) { return settings.world.w; }
+  let start=address(vec3u(p));
+  if(start!=i && (terrain[start]!=0u || plants[start].energy>0.0)) { return settings.world.w; }
+  for(var y=p.y-1;y>=0;y--) {
+    let hit=address(vec3u(u32(p.x),u32(y),u32(p.z)));
+    if(plants[hit].energy>0.0) { return settings.world.w; }
+    if(terrain[hit]!=0u) {
+      let landing=address(vec3u(u32(p.x),u32(y+1),u32(p.z)));
+      if(landing==i || plants[landing].energy>0.0) { return settings.world.w; }
+      return landing;
+    }
+  }
+  return settings.world.w;
+}
+@compute @workgroup_size(64)
+fn disperse(@builtin(global_invocation_id) id: vec3u) {
+  let i=id.x;if(i>=settings.world.w) { return; }
+  let landing=seedTarget(i);
+  // Stable cell-index priority, independent of invocation scheduling.
+  if(landing<settings.world.w) { atomicMax(&seeds[landing],i+1u); }
+}
 @compute @workgroup_size(64)
 fn grow(@builtin(global_invocation_id) id: vec3u) {
   let i=id.x; if(i>=settings.world.w) { return; }
@@ -140,17 +166,28 @@ fn grow(@builtin(global_invocation_id) id: vec3u) {
       next=plant; next.energy=energy; next.age+=settings.clock.x;
       let destination=proposal(i);
       if(destination<settings.world.w && winner(destination)==i) { next.energy-=birthCost; }
+      let landing=seedTarget(i);
+      if(landing<settings.world.w && atomicLoad(&seeds[landing])==i+1u && winner(landing)==settings.world.w) { next.energy-=4.0; }
     }
   } else {
     let parent=winner(i);
     if(parent<settings.world.w) {
       let source=plants[parent];
-      next=Plant(childEnergy,0.0,parent+1u,u32(settings.clock.y)+2u,source.birth,source.colony);
+      next=Plant(childEnergy,0.0,parent+1u,u32(settings.clock.y)+2u,source.birth,source.colony,source.upProbability,source.generation);
     } else {
-      let p=coordinate(i);
-      if(p.y>0u && terrain[address(p-vec3u(0,1,0))]!=0u && sunlight[i]!=0u &&
-          random(i*17u+u32(settings.clock.y)*991u+settings.display.y)<0.00002*settings.clock.x) {
-        next=Plant(3.0,0.0,0u,u32(settings.clock.y)+2u,0u,i+1u);
+      let seedParent=atomicLoad(&seeds[i]);
+      if(seedParent!=0u) {
+        let source=plants[seedParent-1u];
+        let key=i*317u+seedParent*127u+u32(settings.clock.y)*991u+settings.display.y;
+        var gene=source.upProbability;
+        if(random(key ^ 3191u)<0.1) { gene=clamp(gene+(random(key ^ 7717u)*2.0-1.0)*0.1,0.0,1.0); }
+        next=Plant(2.0,0.0,0u,u32(settings.clock.y)+2u,0u,i+1u,gene,source.generation+1u);
+      } else {
+        let p=coordinate(i);
+        if(p.y>0u && terrain[address(p-vec3u(0,1,0))]!=0u && sunlight[i]!=0u &&
+            random(i*17u+u32(settings.clock.y)*991u+settings.display.y)<settings.ecology.x*settings.clock.x) {
+          next=Plant(3.0,0.0,0u,u32(settings.clock.y)+2u,0u,i+1u,random(i ^ u32(settings.clock.y) ^ settings.display.y ^ 9127u),0u);
+        }
       }
     }
   }
