@@ -1,0 +1,127 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Height Clipmap GPU regression</title>
+<style>body{background:#152127;color:#e1e7e7;font:16px monospace;padding:24px}button{font:inherit;padding:8px}pre{white-space:pre-wrap}</style>
+<h1>Height Clipmap GPU regression</h1>
+<p>ビルド出力のルートへ置いてlocalhostで開きます。実際の生成シェーダーとキャッシュ管理で、差分更新と全生成のFP16ペアを照合します。</p>
+<button id="run">実行</button><pre id="result">未実行</pre>
+<script type="module">
+const button = document.querySelector('#run'), output = document.querySelector('#result');
+button.onclick = async () => {
+    button.disabled = true;
+    output.textContent = 'GPUテスト中';
+    let device;
+    const caches = [], buffers = [];
+    try {
+        const root = new URL(new URL(location.href).searchParams.get('source') ?? '/lab/webgpu/experiments/terrain-rendering00/', location.href);
+        const { HeightClipmap, HEIGHT_LEVEL_BYTES, terrainBound } = await import(new URL('height-clipmap.js', root));
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) {
+            throw Error('No adapter');
+        }
+        device = await adapter.requestDevice();
+        const response = await fetch(new URL('generate-height.wgsl', root), { cache: 'no-cache' });
+        if (!response.ok) {
+            throw Error('Shader HTTP ' + response.status);
+        }
+        device.pushErrorScope('validation');
+        const module = device.createShaderModule({ code: await response.text() });
+        const errors = (await module.getCompilationInfo()).messages.filter(m => m.type === 'error');
+        if (errors.length) {
+            throw Error(errors.map(e => e.message).join('\n'));
+        }
+        const layout = device.createBindGroupLayout({ entries: [
+                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 48 } },
+                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }
+            ] });
+        const pipeline = await device.createComputePipelineAsync({ layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }), compute: { module, entryPoint: 'generateMain' } });
+        const parameters = { seed: 42, amplitude: 650, scale: 2000 };
+        const cache = new HeightClipmap(device, pipeline, 2, parameters);
+        caches.push(cache);
+        const staging = device.createBuffer({ size: 7 * HEIGHT_LEVEL_BYTES, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+        buffers.push(staging);
+        async function snapshot(current, x, z) {
+            const encoder = device.createCommandEncoder();
+            const stats = current.encode(encoder, x, z);
+            encoder.copyBufferToBuffer(current.buffer, 0, staging, 0, current.bytes);
+            device.queue.submit([encoder.finish()]);
+            await staging.mapAsync(GPUMapMode.READ);
+            const data = new Uint32Array(staging.getMappedRange(0, current.bytes)).slice();
+            staging.unmap();
+            return { stats, data };
+        }
+        const log = [];
+        let checks = 0;
+        for (const [x, z] of [[0, 0], [2, 3], [-4, -5], [1022, 1025], [1026, 1025], [0, 0], [-5000, 2000], [123456, -78901]]) {
+            const actual = await snapshot(cache, x, z);
+            const reference = new HeightClipmap(device, pipeline, 2, parameters);
+            caches.push(reference);
+            const expected = await snapshot(reference, x, z);
+            if (actual.data.length !== expected.data.length || !actual.data.every((word, i) => word === expected.data[i])) {
+                throw Error(`差分/全生成の不一致 (${x},${z})`);
+            }
+            reference.dispose();
+            checks++;
+            log.push(`(${x},${z}) 更新 ${actual.stats.samples} サンプル / 全生成と全FP16ペア一致`);
+        }
+        const before = await snapshot(cache, 123456, -78901), idle = await snapshot(cache, 123456, -78901);
+        if (idle.stats.samples !== 0 || !before.data.every((word, i) => word === idle.data[i])) {
+            throw Error('静止時に変更');
+        }
+        checks++;
+        cache.regenerate(parameters);
+        const same = await snapshot(cache, 123456, -78901);
+        if (!before.data.every((word, i) => word === same.data[i])) {
+            throw Error('同じシードの再現に失敗');
+        }
+        checks++;
+        cache.regenerate({ ...parameters, seed: 43 });
+        const changed = await snapshot(cache, 123456, -78901);
+        if (before.data.every((word, i) => word === changed.data[i])) {
+            throw Error('シード変更が反映されない');
+        }
+        checks++;
+        // FP16の値域と有限値を確認する。NaN/Infは生成してはならない。
+        const halves = new Uint16Array(changed.data.buffer);
+        let minimum = Infinity, maximum = -Infinity;
+        for (const bits of halves) {
+            const exponent = (bits >>> 10) & 31, mantissa = bits & 1023;
+            if (exponent === 31) {
+                throw Error('FP16 NaN/Inf');
+            }
+            const magnitude = exponent === 0 ? mantissa * 2 ** -24 : (1 + mantissa / 1024) * 2 ** (exponent - 15);
+            const h = (bits & 32768) ? -magnitude : magnitude;
+            minimum = Math.min(minimum, h);
+            maximum = Math.max(maximum, h);
+            if (Math.abs(h) > terrainBound(parameters)) {
+                throw Error('保守的標高範囲外');
+            }
+        }
+        checks++;
+        // 最大7段でも、各段のラップと差分更新が全生成に一致することを確認する。
+        const wide = new HeightClipmap(device, pipeline, 7, parameters), wideReference = new HeightClipmap(device, pipeline, 7, parameters);
+        caches.push(wide, wideReference);
+        await snapshot(wide, 9001, -5002);
+        const wideActual = await snapshot(wide, 9020, -5010), wideExpected = await snapshot(wideReference, 9020, -5010);
+        if (!wideActual.data.every((word, i) => word === wideExpected.data[i])) {
+            throw Error('7段の差分更新が不一致');
+        }
+        checks++;
+        log.push(`7段 更新 ${wideActual.stats.samples} / 全生成7340032サンプルと一致`);
+        const error = await device.popErrorScope();
+        if (error) {
+            throw Error(error.message);
+        }
+        output.textContent = `PASS ${checks} GPU checks\n${log.join('\n')}\n静止時0更新 / 同一シード再現 / seed変更 / FP16有限値・範囲 PASS\n標高範囲 ${minimum} ～ ${maximum} m`;
+    }
+    catch (error) {
+        output.textContent = 'FAIL: ' + error.message;
+    }
+    finally {
+        caches.forEach(c => c.dispose());
+        buffers.forEach(b => b.destroy());
+        device?.destroy();
+        button.disabled = false;
+    }
+};
+</script>
