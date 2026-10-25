@@ -1,0 +1,38 @@
+<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:20px 0">
+<button id="gpu-camera-reset" type="button" disabled>カメラを戻す</button>
+<label><input id="gpu-snap" type="checkbox" checked> セルスナップ</label>
+<label><input id="gpu-normals" type="checkbox"> 法線表示</label>
+<label><input id="gpu-wireframe" type="checkbox"> ワイヤーフレーム</label>
+<label><input id="gpu-tile-colors" type="checkbox"> タイル色分け</label>
+<label><input id="gpu-culling" type="checkbox" checked> フラスタムカリング</label>
+<label><input id="gpu-freeze" type="checkbox"> カリング・配置をフリーズ</label>
+<label>タイル密度 <select id="gpu-density"><option value="4">4×4</option><option value="8">8×8</option><option value="16">16×16</option></select></label>
+<label>カバー半径 <select id="gpu-radius"><option value="250">250 m</option><option value="500">500 m</option><option value="1000">1 km</option><option value="2000">2 km</option><option value="4000">4 km</option><option value="8000">8 km</option><option value="16000" selected>16 km</option></select></label>
+<label>地形シード <input id="gpu-seed" type="number" min="0" max="4294967295" step="1" value="12343725" style="width:110px"></label>
+<label>標高振幅 <input id="gpu-amplitude" type="range" min="100" max="2000" step="50" value="2000"> <output id="gpu-amplitude-value">2000 m</output></label>
+<label>山スケール <input id="gpu-scale" type="range" min="500" max="8000" step="100" value="3100"> <output id="gpu-scale-value">3100 m</output></label>
+<button id="gpu-regenerate" type="button" disabled>地形を再生成</button>
+<label>可視リスト集約 <select id="gpu-compaction"><option value="auto">自動（subgroup優先）</option><option value="workgroup">workgroup（比較用）</option></select></label>
+<label>移動速度 <input id="gpu-speed" type="range" min="10" max="600" step="10" value="150"> <output id="gpu-speed-value">150 m/s</output></label>
+</div>
+<p>ビューをクリックして操作：W/S 前後・A/D 左右・Q/E 下降/上昇・Shift 加速<br>ドラッグ/矢印キーで視点回転・ホイールで前後移動。地形との衝突判定はありません</p>
+<p>カメラ位置：<output id="gpu-camera-value">未初期化</output></p>
+
+<p>シード・標高振幅・山スケールの変更は「地形を再生成」で反映します。格納先は循環しますが、地形は繰り返しません</p>
+
+<fieldset style="margin:16px 0"><legend>Directional Light / Shadow Map</legend>
+<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+<label><input id="gpu-shadows" type="checkbox" checked> シャドウ</label>
+<label><input id="gpu-shadow-mask" type="checkbox"> シャドウ可視率表示</label>
+<label>方位角 <input id="gpu-light-azimuth" type="range" min="0" max="360" step="1" value="60"> <output id="gpu-light-azimuth-value">60°</output></label>
+<label>仰角 <input id="gpu-light-elevation" type="range" min="5" max="85" step="1" value="30"> <output id="gpu-light-elevation-value">30°</output></label>
+<label>シャドウ投影半幅 <select id="gpu-shadow-width"><option value="512">512 m</option><option value="1024">1 km</option><option value="2048" selected>2 km</option><option value="4096">4 km</option><option value="8192">8 km</option><option value="16384">16 km</option></select></label>
+<label>深度バイアス <input id="gpu-depth-bias" type="range" min="0" max="0.001" step="0.00001" value="0.00005"> <output id="gpu-depth-bias-value">0.00005</output></label>
+<label>法線バイアス <input id="gpu-normal-bias" type="range" min="0" max="10" step="0.1" value="1"> <output id="gpu-normal-bias-value">1 m</output></label>
+<label>PCF <select id="gpu-pcf"><option value="0">1 tap</option><option value="1" selected>3×3</option><option value="2">5×5</option></select></label>
+</div></fieldset>
+
+<fieldset style="margin:16px 0"><legend>SkyLight Diffuse</legend>
+<label>強度 <input id="gpu-sky-intensity" type="range" min="0" max="2" step="0.05" value="1"> <output id="gpu-sky-intensity-value">1</output></label>
+<p>天球をOctahedral Mapへ描画して1次SHへ投影し、法線に応じた拡散光を全体へ適用します</p>
+</fieldset>

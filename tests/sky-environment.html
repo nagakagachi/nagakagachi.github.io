@@ -1,0 +1,78 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Octahedral Sky / SH GPU regression</title>
+<style>body{background:#152127;color:#e1e7e7;font:16px monospace;padding:24px}pre{white-space:pre-wrap}button{font:inherit;padding:8px}</style>
+<h1>Octahedral Sky / SH GPU regression</h1>
+<p>下書きビルドのルートへ一時配置して実行。実際の生成・SH投影・集約・背景描画を検証します。</p>
+<button id="run">実行</button><pre id="result">未実行</pre>
+<script type="module">
+const button=document.querySelector('#run'),output=document.querySelector('#result');
+button.onclick=async()=>{
+    button.disabled=true;output.textContent='GPU検証中';let device;
+    const environments=[],resources=[];
+    try{
+        const root=new URL('/lab/webgpu/experiments/rendering-sandbox/',location.href);
+        const {SkyEnvironment}=await import(new URL('sky-environment.js',root));
+        const adapter=await navigator.gpu.requestAdapter();if(!adapter)throw Error('GPUなし');
+        device=await adapter.requestDevice();device.pushErrorScope('validation');
+        const load=async n=>{const r=await fetch(new URL(n,root),{cache:'no-cache'});if(!r.ok)throw Error(n+': '+r.status);return r.text();};
+        const [common,oct,sh,gen,project,reduce,render]=await Promise.all(['sky-common.wgsl','sky-octahedral.wgsl','sky-sh.wgsl','sky-generate.wgsl','sky-project.wgsl','sky-reduce.wgsl','sky-render.wgsl'].map(load));
+        const module=async code=>{const m=device.createShaderModule({code});const errors=(await m.getCompilationInfo()).messages.filter(x=>x.type==='error');if(errors.length)throw Error(errors.map(e=>e.message).join('\n'));return m;};
+        const projectModule=await module(oct+sh+project), reduceModule=await module(sh+reduce);
+        async function environment(library){
+            const result=await SkyEnvironment.create(device,{generate:await module(library+oct+gen),project:projectModule,reduce:reduceModule,render:await module(library+render)},'rgba8unorm');
+            environments.push(result);return result;
+        }
+        const buffer=(size,usage)=>{const b=device.createBuffer({size,usage});resources.push(b);return b;};
+        const coeffRead=buffer(64,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
+        async function snapshot(env,light,yaw=0,pitch=0){
+            const encoder=device.createCommandEncoder();const changed=env.encode(encoder,light,yaw,pitch,1);
+            encoder.copyBufferToBuffer(env.coefficients,0,coeffRead,0,64);device.queue.submit([encoder.finish()]);
+            await coeffRead.mapAsync(GPUMapMode.READ);const values=new Float32Array(coeffRead.getMappedRange()).slice();coeffRead.unmap();return {values,changed};
+        }
+        const prefix='struct SkyParameters { sun:vec4f } @group(0) @binding(0) var<uniform> sky:SkyParameters;';
+        const constant=await environment(prefix+'fn skyRadiance(d:vec3f)->vec3f{return vec3f(sky.sun.x);}');
+        const analytic=await environment(prefix+'fn skyRadiance(d:vec3f)->vec3f{return vec3f(0.4+0.3*dot(d,sky.sun.xyz));}');
+        const quartic=await environment(prefix+'fn skyRadiance(d:vec3f)->vec3f{let t=dot(d,sky.sun.xyz);return vec3f(0.2+0.6*t*t*t*t);}');
+        const production=await environment(common);
+        const basis=d=>[0.2820947918,...d.map(v=>0.4886025119*v)];
+        const evaluate=(c,n)=>[0,1,2].map(k=>basis(n).reduce((sum,b,i)=>sum+c[i*4+k]*b,0));
+        const normals=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+        const log=[];
+        const a=await snapshot(constant,[0.25,0,0]);
+        for(const n of normals)for(const v of evaluate(a.values,n))if(Math.abs(v-0.25)>0.0005)throw Error('定数空のSH不一致: '+v);
+        log.push('定数L=0.25: 全6方向のLambert Diffuse=0.25 PASS');
+        const b=await snapshot(analytic,[0,1,0]);
+        for(const n of normals)for(const v of evaluate(b.values,n)){const expected=0.4+0.2*n[1];if(Math.abs(v-expected)>0.0005)throw Error(`線形空のSH不一致: ${v}/${expected}`);}
+        log.push('L=0.4+0.3*y: Diffuse上0.6/横0.4/下0.2 PASS');
+        const q=await snapshot(quartic,[0,1,0]);
+        for(const n of normals)for(const v of evaluate(q.values,n))if(Math.abs(v-0.32)>0.0005)throw Error('Octahedral立体角の不一致: '+v);
+        log.push('L=0.2+0.6*y^4: 球面平均0.32、立体角重み PASS');
+        const initial=await snapshot(production,[0.75,0.5,0.4330127]);
+        const idle=await snapshot(production,[0.75,0.5,0.4330127],1.2,-0.4);
+        if(idle.changed||!idle.values.every((v,i)=>v===initial.values[i]))throw Error('カメラ変更で不要なSH再投影');
+        const changed=await snapshot(production,[-0.75,0.5,0.4330127]);
+        if(!changed.changed||changed.values.every((v,i)=>v===initial.values[i]))throw Error('太陽方向がSHに反映されません');
+        if(evaluate(initial.values,[0,1,0])[2]<=evaluate(initial.values,[0,-1,0])[2])throw Error('空の上下方向が逆です');
+        log.push('実際の晴天空: 上向きが明るい / カメラ変更で保持 / 太陽方向変更で再投影 PASS');
+        const texture=desc=>{const t=device.createTexture(desc);resources.push(t);return t;};
+        const color=texture({size:[64,64],format:'rgba8unorm',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});
+        const depth=texture({size:[64,64],format:'depth32float',usage:GPUTextureUsage.RENDER_ATTACHMENT});
+        const pixelRead=buffer(64*256,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
+        async function background(pitch,clearDepth){
+            const e=device.createCommandEncoder();analytic.encode(e,[0,1,0],0,pitch,1);
+            const pre=e.beginRenderPass({colorAttachments:[],depthStencilAttachment:{view:depth.createView(),depthClearValue:clearDepth,depthLoadOp:'clear',depthStoreOp:'store'}});pre.end();
+            const pass=e.beginRenderPass({colorAttachments:[{view:color.createView(),clearValue:[0,0,0,1],loadOp:'clear',storeOp:'store'}],depthStencilAttachment:{view:depth.createView(),depthReadOnly:true}});
+            analytic.draw(pass);pass.end();e.copyTextureToBuffer({texture:color},{buffer:pixelRead,bytesPerRow:256},[64,64]);device.queue.submit([e.finish()]);
+            await pixelRead.mapAsync(GPUMapMode.READ);const p=new Uint8Array(pixelRead.getMappedRange()).slice();pixelRead.unmap();return p[(32*64+32)*4];
+        }
+        const up=await background(-Math.PI/2,0),down=await background(Math.PI/2,0),occluded=await background(-Math.PI/2,0.5);
+        const encoded=v=>Math.round(255*Math.pow(v,1/2.2));
+        if(Math.abs(up-encoded(0.7))>1||Math.abs(down-encoded(0.1))>1||occluded!==0)throw Error(`ピクセルレイ/深度が不正: ${up}/${down}/${occluded}`);
+        log.push(`背景ピクセルレイ 上=${up}/下=${down} / 深度0.5でSky棄却=${occluded} PASS`);
+        const validation=await device.popErrorScope();if(validation)throw Error(validation.message);
+        output.textContent='PASS\n'+log.join('\n')+'\nWebGPU validation errorなし';
+    }catch(error){output.textContent='FAIL: '+error.message;}
+    finally{environments.forEach(e=>e.dispose());resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
+};
+</script>

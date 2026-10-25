@@ -1,5 +1,7 @@
 ﻿---
 title: "Test05-Reversed ZとDepth Buffer"
+date: "2026-10-17T22:04:54+09:00"
+lastmod: "2026-10-18T11:49:49+09:00"
 layout: "experiment"
 outputs: ["HTML", "Source"]
 start_label: "開始"

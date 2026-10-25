@@ -1,5 +1,7 @@
 ﻿---
 title: "Test07-Directional Lightとライティング"
+date: "2026-10-18T12:50:29+09:00"
+lastmod: "2026-10-18T13:51:22+09:00"
 layout: "experiment"
 outputs: ["HTML", "Source"]
 description: "球メッシュを平行光源で照らし、Lambert拡散反射とGGX鏡面反射を確認するWebGPU実験"

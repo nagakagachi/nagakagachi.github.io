@@ -1,0 +1,13 @@
+<div class="post-list">
+{{ range . }}
+<article class="post-row">
+  <time datetime="{{ .Lastmod.Format "2006-01-02" }}">{{ .Lastmod.Format "2006.01.02" }}</time>
+  <div>
+    <h2><a href="{{ .RelPermalink }}">{{ .Title }}</a></h2>
+    <small class="recent-kind">{{ if eq .Section "lab" }}実験室{{ else }}ブログ{{ end }}</small>
+    {{ with .Params.hatena_original_url }}<span class="migration-label">はてなブログから移行</span>{{ end }}
+    <p>{{ with .Description }}{{ . }}{{ else }}{{ partial "summary.html" . }}{{ end }}</p>
+  </div>
+</article>
+{{ end }}
+</div>

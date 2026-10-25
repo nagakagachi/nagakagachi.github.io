@@ -1,0 +1,157 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>RenderingSandbox GPU regression</title>
+<style>body{background:#152127;color:#e1e7e7;font:16px monospace;padding:24px}button{font:inherit;padding:8px}pre{white-space:pre-wrap}</style>
+<h1>RenderingSandbox GPU regression</h1>
+<p>ビルド出力のルートへ置いてlocalhostから実行します。原本の地形シェーダー・Pass・カリングを使い、既知の稜線の影とZPrePassの被覆を検証します。</p>
+<button id="run">実行</button><pre id="result">未実行</pre>
+<script type="module">
+const button = document.querySelector('#run'), output = document.querySelector('#result');
+button.onclick = async () => {
+    button.disabled = true;
+    let device;
+    const resources = [];
+    try {
+        const root = new URL('/lab/webgpu/experiments/rendering-sandbox/', location.href);
+        const { createTileIndices, createLayout, cascadeParameters, decodeTile, packTile } = await import(new URL('clipmap-grid.js', root));
+        const { lightDirection, shadowMatrix, frustumPlanes } = await import(new URL('render-math.js', root));
+        const { createOpaquePipelines, encodeOpaquePasses } = await import(new URL('render-passes.js', root));
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) { throw Error('GPUがありません'); }
+        device = await adapter.requestDevice();
+        device.pushErrorScope('validation');
+        const load = async name => {
+            const response = await fetch(new URL(name, root), { cache: 'no-cache' });
+            if (!response.ok) { throw Error(name + ': ' + response.status); }
+            return response.text();
+        };
+        const common = await load('tile-common.wgsl'), geometry = await load('terrain-geometry.wgsl');
+        const shLibrary = await load('sky-sh.wgsl');
+        const module = async code => {
+            const shader = device.createShaderModule({ code });
+            const errors = (await shader.getCompilationInfo()).messages.filter(m => m.type === 'error');
+            if (errors.length) { throw Error(errors.map(e => e.message).join('\n')); }
+            return shader;
+        };
+        const zOnly = await module(common + geometry + await load('terrain-zonly.wgsl'));
+        const forward = await module(common + geometry + shLibrary + await load('terrain-forward.wgsl'));
+        const cull = await module(common + await load('cull.wgsl') + await load('compact-workgroup.wgsl'));
+        const buffer = (size, usage, data) => {
+            const result = device.createBuffer({ size, usage: usage | GPUBufferUsage.COPY_DST });
+            resources.push(result);
+            if (data) { device.queue.writeBuffer(result, 0, data); }
+            return result;
+        };
+        const texture = desc => { const t = device.createTexture(desc); resources.push(t); return t; };
+        const grid = createTileIndices(), layout = createLayout(4, 127);
+        const origins = cascadeParameters(0, 0, layout, true);
+        // FP16で高さ8mの稜線をX=0に置き、片側だけに影が出る既知形状を作る。
+        const height = new Uint32Array(1024 * 512);
+        for (let z = 0; z < 1024; z++) {
+            for (let x = 0; x < 1024; x += 2) {
+                const signedX = x < 512 ? x : x - 1024;
+                const h = v => Math.abs(v) <= 3 ? 0x4800 : 0;
+                height[z * 512 + x / 2] = h(signedX) | (h(signedX + 1) << 16);
+            }
+        }
+        const heights = buffer(height.byteLength, GPUBufferUsage.STORAGE, height);
+        const ib = buffer(grid.surface.byteLength, GPUBufferUsage.INDEX, grid.surface);
+        const light = lightDirection(90, 30), lightVP = shadowMatrix([0, 0, 0], light, 128, 256, 1024);
+        const mainVP = new Float32Array([1/32,0,0,0, 0,0,0.01,0, 0,-1/32,0,0, 0,0,0.5,1]);
+        const makeView = matrix => {
+            const s = new Float32Array(120);
+            s.set(matrix); s.set(frustumPlanes(matrix), 16);
+            s.set([...light, 0], 40); s.set([0, 1/8, 0, 0], 44); s.set([1024, 1, 1, 0], 48);
+            s.set([0, 0, 8, 0], 52); new Uint32Array(s.buffer).set([4, 1, 16, 1], 56); s.set(origins, 60);
+            return { uniform: buffer(480, GPUBufferUsage.UNIFORM, s),
+                visible: buffer(6400, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC),
+                args: buffer(20, GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_SRC, new Uint32Array([grid.surface.length,0,0,0,0])) };
+        };
+        const main = makeView(mainVP), shadow = makeView(lightVP);
+        const groupLayout = device.createBindGroupLayout({ entries: [
+            {binding:0,visibility:GPUShaderStage.VERTEX|GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}},
+            {binding:1,visibility:GPUShaderStage.VERTEX,buffer:{type:'read-only-storage'}},
+            {binding:2,visibility:GPUShaderStage.VERTEX,buffer:{type:'read-only-storage'}}
+        ]});
+        const group = view => device.createBindGroup({layout:groupLayout,entries:[
+            {binding:0,resource:{buffer:view.uniform}},{binding:1,resource:{buffer:heights}},{binding:2,resource:{buffer:view.visible}}
+        ]});
+        const mainGroup=group(main), shadowGroup=group(shadow);
+        const shadowTexture=texture({size:[1024,1024],format:'depth32float',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.TEXTURE_BINDING});
+        const depth=texture({size:[256,256],format:'depth32float',usage:GPUTextureUsage.RENDER_ATTACHMENT});
+        const color=texture({size:[256,256],format:'rgba8unorm',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});
+        const lighting=new Float32Array(32); lighting.set(lightVP);lighting.set([...light,3],16);
+        // 比較フィルタのテクセル内深度差を越える、約0.5m相当の受け手バイアス。
+        lighting.set([1,0.001,0,1/1024],20);lighting.set([0,1,0.16,0],24);
+        const lightBuffer=buffer(128,GPUBufferUsage.UNIFORM,lighting);
+        const shData=new Float32Array(16);
+        const shBuffer=buffer(64,GPUBufferUsage.UNIFORM,shData);
+        const lightingLayout=device.createBindGroupLayout({entries:[
+            {binding:0,visibility:GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}},
+            {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'depth'}},
+            {binding:2,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'comparison'}},
+            {binding:3,visibility:GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}}
+        ]});
+        const lightGroup=device.createBindGroup({layout:lightingLayout,entries:[
+            {binding:0,resource:{buffer:lightBuffer}},{binding:1,resource:shadowTexture.createView()},
+            {binding:2,resource:device.createSampler({compare:'greater-equal',minFilter:'linear',magFilter:'linear'})},
+            {binding:3,resource:{buffer:shBuffer}}
+        ]});
+        const pipelines=await createOpaquePipelines(device,groupLayout,lightingLayout,zOnly,forward,'rgba8unorm');
+        const cullPipeline=await device.createComputePipelineAsync({layout:'auto',compute:{module:cull,entryPoint:'cullMain'}});
+        const cullGroup=view=>device.createBindGroup({layout:cullPipeline.getBindGroupLayout(0),entries:[
+            {binding:0,resource:{buffer:view.uniform}},{binding:1,resource:{buffer:view.visible}},{binding:2,resource:{buffer:view.args}}
+        ]});
+        const mg=cullGroup(main), sg=cullGroup(shadow);
+        const draw=(pass,pipeline,view,bg)=>{pass.setPipeline(pipeline);pass.setBindGroup(0,bg);pass.setIndexBuffer(ib,'uint16');pass.drawIndexedIndirect(view.args,0);};
+        const object={drawDepth:(pass,view)=>draw(pass,pipelines.zOnly,view==='main'?main:shadow,view==='main'?mainGroup:shadowGroup),
+            drawForward:pass=>{pass.setPipeline(pipelines.forward);pass.setBindGroup(0,mainGroup);pass.setBindGroup(1,lightGroup);pass.setIndexBuffer(ib,'uint16');pass.drawIndexedIndirect(main.args,0);},drawDebug:()=>{}};
+        const read=buffer(256*256*4,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
+        async function render(enabled){
+            lighting[20]=Number(enabled);device.queue.writeBuffer(lightBuffer,0,lighting);
+            const e=device.createCommandEncoder();e.clearBuffer(main.args,4,4);e.clearBuffer(shadow.args,4,4);
+            const c=e.beginComputePass();c.setPipeline(cullPipeline);c.setBindGroup(0,mg);c.dispatchWorkgroups(1);c.setBindGroup(0,sg);c.dispatchWorkgroups(1);c.end();
+            encodeOpaquePasses(e,color.createView(),depth.createView(),shadowTexture.createView(),[object],enabled,false);
+            e.copyTextureToBuffer({texture:color},{buffer:read,bytesPerRow:1024},[256,256]);
+            device.queue.submit([e.finish()]);await read.mapAsync(GPUMapMode.READ);
+            const result=new Uint8Array(read.getMappedRange()).slice();read.unmap();return result;
+        }
+        const unshadowed=await render(false), shadowed=await render(true);
+        // 全面が白ならZOnlyとForwardのEqual位置が一致し、被覆欠落がない。
+        if(!unshadowed.every(v=>v===255)){throw Error('ZPrePass/Equal描画に欠けがあります');}
+        const pixel=(data,x,z)=>data[(Math.floor((z+32)*4)*256+Math.floor((x+32)*4))*4];
+        // 上面図では+Zが下側。稜線の光源側(+X)は明、反対側(-X)は暗。
+        const lit=pixel(shadowed,15,0), shade=pixel(shadowed,-10,0);
+        if(lit<240||shade>20){throw Error(`影の比較方向が不正: light=${lit}, shadow=${shade}`);}
+        // 直射光を0にして、一様なSkyLightだけを受光側・遮蔽側へ同じ量だけ与える。
+        lighting[19]=0;lighting[25]=0;lighting.set([0,0,0,1],28);
+        shData.set([0.25/0.2820947918,0.25/0.2820947918,0.25/0.2820947918,0]);
+        device.queue.writeBuffer(shBuffer,0,shData);
+        const skyOnly=await render(true);
+        const skyLit=pixel(skyOnly,15,0), skyShade=pixel(skyOnly,-10,0);
+        const expectedSky=Math.round(255*Math.pow(0.16*0.25,1/2.2));
+        if(Math.abs(skyLit-expectedSky)>1||Math.abs(skyShade-expectedSky)>1){
+            throw Error(`SkyLightが影内外で不一致: ${skyLit}/${skyShade}, expected ${expectedSky}`);
+        }
+        lighting[31]=0;
+        const skyOff=await render(true);
+        if(pixel(skyOff,15,0)!==0||pixel(skyOff,-10,0)!==0){throw Error('SkyLight強度0で光が残ります');}
+        const visibilityRead=buffer(12840,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
+        const visibilityEncoder=device.createCommandEncoder();
+        visibilityEncoder.copyBufferToBuffer(main.args,0,visibilityRead,0,20);
+        visibilityEncoder.copyBufferToBuffer(shadow.args,0,visibilityRead,20,20);
+        visibilityEncoder.copyBufferToBuffer(main.visible,0,visibilityRead,40,6400);
+        visibilityEncoder.copyBufferToBuffer(shadow.visible,0,visibilityRead,6440,6400);
+        device.queue.submit([visibilityEncoder.finish()]);await visibilityRead.mapAsync(GPUMapMode.READ);
+        const ids=new Uint32Array(visibilityRead.getMappedRange());
+        const mainCount=ids[1], shadowCount=ids[6];
+        const mainIDs=new Set([...ids.slice(10,10+mainCount)].map(v=>v&2047));
+        const offscreen=[...ids.slice(1610,1610+shadowCount)].filter(v=>!mainIDs.has(v&2047));
+        visibilityRead.unmap();
+        if(!offscreen.length){throw Error('メイン視野外のキャスターがシャドウリストに残っていません');}
+        const error=await device.popErrorScope();if(error){throw Error(error.message);}
+        output.textContent=`PASS\n全65,536画素でZPrePass/Forward Equalの被覆一致\n稜線の光源側=${lit}、遮蔽側=${shade}（0〜255）\nMain=${mainCount} / Shadow=${shadowCount} / メイン視野外キャスター=${offscreen.length}件\nSkyLightのみ: 受光側=${skyLit} / 遮蔽側=${skyShade} / 強度0で両方0\n実シェーダー・独立カリング・3 Passを使用 / WebGPU validation errorなし`;
+    }catch(error){output.textContent='FAIL: '+error.message;}
+    finally{resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
+};
+</script>

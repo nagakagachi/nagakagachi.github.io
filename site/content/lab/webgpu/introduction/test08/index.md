@@ -1,5 +1,7 @@
 ﻿---
 title: "Test08-Shadow Map"
+date: "2026-10-18T13:51:22+09:00"
+lastmod: "2026-10-18T13:51:22+09:00"
 layout: "experiment"
 outputs: ["HTML", "Source"]
 start_label: "開始"

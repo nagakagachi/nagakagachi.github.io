@@ -1,5 +1,7 @@
 ﻿---
 title: "TerrainRendering00"
+date: "2026-10-25T21:05:26+09:00"
+lastmod: "2026-10-25T21:05:26+09:00"
 layout: "experiment"
 outputs: ["HTML", "Source"]
 description: "FP16 Height Clipmapと共有格子によるプロシージャルTerrainの検証"

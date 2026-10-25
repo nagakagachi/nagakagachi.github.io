@@ -1,5 +1,7 @@
 ﻿---
 title: "Test01-Uniform Bufferと回転"
+date: "2026-10-06T23:20:30+09:00"
+lastmod: "2026-10-18T11:49:49+09:00"
 layout: "experiment"
 outputs: ["HTML", "Source"]
 start_label: "開始"

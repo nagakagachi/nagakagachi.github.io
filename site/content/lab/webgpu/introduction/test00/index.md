@@ -1,5 +1,7 @@
 ﻿---
 title: "Test00-三角形の描画"
+date: "2026-10-05T23:52:09+09:00"
+lastmod: "2026-10-18T11:49:49+09:00"
 layout: "experiment"
 outputs: ["HTML", "Source"]
 demo_label: "WebGPU三角形デモ"
