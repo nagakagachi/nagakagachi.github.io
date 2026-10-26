@@ -1,0 +1,47 @@
+<!doctype html>
+<meta charset="utf-8"><title>HDR / PostProcess GPU検証</title>
+<style>body{background:#152127;color:#e1e7e7;font:16px monospace;padding:24px}pre{white-space:pre-wrap}</style>
+<h1>HDR / PostProcess GPU検証</h1><button id="run">実行</button><pre id="result">未実行</pre>
+<script type="module">
+const button=document.querySelector('#run'),output=document.querySelector('#result');
+button.onclick=async()=>{
+ let device,post;const resources=[];button.disabled=true;
+ try{
+  const root='/lab/webgpu/experiments/rendering-sandbox/v01/';
+  const {PostProcess}=await import(root+'post-process.js');
+  const adapter=await navigator.gpu.requestAdapter();if(!adapter)throw Error('GPUなし');
+  device=await adapter.requestDevice();device.pushErrorScope('validation');
+  const response=await fetch(root+'post-process.wgsl',{cache:'no-cache'});if(!response.ok)throw Error('シェーダー取得失敗');
+  const module=device.createShaderModule({code:await response.text()});
+  const errors=(await module.getCompilationInfo()).messages.filter(m=>m.type==='error');if(errors.length)throw Error(errors.map(e=>e.message).join('\n'));
+  const texture=d=>{const t=device.createTexture(d);resources.push(t);return t;};
+  const hdr=texture({size:[2,1],format:'rgba16float',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.TEXTURE_BINDING});
+  const color=texture({size:[2,1],format:'rgba8unorm',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});
+  const read=device.createBuffer({size:256,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});resources.push(read);
+  post=await PostProcess.create(device,module,hdr.createView(),'rgba8unorm');
+  const source=device.createShaderModule({code:`
+@vertex fn vs(@builtin(vertex_index) id:u32)->@builtin(position) vec4f{
+ let xy=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));return vec4f(xy[id],0,1);
+}
+@fragment fn fs(@builtin(position) p:vec4f)->@location(0) vec4f{
+ return select(vec4f(0.001,0.18,1.0,1.0),vec4f(4.0,16.0,64.0,1.0),p.x>1.0);
+}`});
+  const pipeline=await device.createRenderPipelineAsync({layout:'auto',vertex:{module:source,entryPoint:'vs'},fragment:{module:source,entryPoint:'fs',targets:[{format:'rgba16float'}]}});
+  const encode=(v,e)=>{const h=v*e;const x=Math.min(1,Math.max(0,h*(2.51*h+0.03)/(h*(2.43*h+0.59)+0.14)));return Math.round(255*(x<=0.0031308?12.92*x:1.055*x**(1/2.4)-0.055));};
+  for(const exposure of [1,0.5]){
+   const encoder=device.createCommandEncoder();
+   const pass=encoder.beginRenderPass({colorAttachments:[{view:hdr.createView(),loadOp:'clear',storeOp:'store',clearValue:[0,0,0,1]}]});
+   pass.setPipeline(pipeline);pass.draw(3);pass.end();
+   post.encode(encoder,color.createView(),exposure);
+   encoder.copyTextureToBuffer({texture:color},{buffer:read,bytesPerRow:256},[2,1]);device.queue.submit([encoder.finish()]);
+   await read.mapAsync(GPUMapMode.READ);const pixels=new Uint8Array(read.getMappedRange()).slice();read.unmap();
+   const values=[0.001,0.18,1,4,16,64];
+   values.forEach((v,i)=>{const index=i<3?i:i+1;if(Math.abs(pixels[index]-encode(v,exposure))>1)throw Error(`表示変換不一致 HDR=${v} 露出=${exposure} 結果=${pixels[index]}`);});
+   if(!(pixels[2]<pixels[4]&&pixels[4]<=pixels[5]&&pixels[5]<=pixels[6]))throw Error('HDRの1と4の表示差または単調性が不正です');
+  }
+  const error=await device.popErrorScope();if(error)throw Error(error.message);
+  output.textContent='PASS\nrgba16floatの0.001/0.18/1/4/16/64を別Passで表示\n露出1・0.5でACES Filmic→sRGBの期待値と一致\n1超のHDR値をTonemapping前に保持\nWebGPU validation errorなし';
+ }catch(e){output.textContent='FAIL: '+e.message;}
+ finally{post?.dispose();resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
+};
+</script>

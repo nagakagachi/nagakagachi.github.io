@@ -1,0 +1,25 @@
+{{ define "main" }}
+{{ with .Resources.Get "workspace.css" }}<link rel="stylesheet" href="{{ .RelPermalink }}">{{ end }}
+<article class="article sandbox-article">
+<header class="article-header">{{ partial "lab-breadcrumbs.html" . }}<h1>{{ .Title }}</h1></header>
+{{ $parts := split .Content "<!-- demo -->" }}
+<div class="article-body sandbox-intro">{{ index $parts 0 | safeHTML }}</div>
+<section class="webgpu-demo sandbox-workspace" aria-label="{{ .Title }}">
+<div class="sandbox-stage">
+<div class="sandbox-toolbar"><button id="gpu-start" type="button">実行</button><button id="gpu-camera-reset" type="button" disabled>カメラを戻す</button></div>
+<canvas id="gpu-canvas" width="960" height="540" aria-label="{{ .Title }} 3Dビュー"></canvas>
+<p id="gpu-status" class="sandbox-status" role="status" aria-live="polite">実行ボタンで開始します</p>
+<p class="sandbox-camera">カメラ：<output id="gpu-camera-value">未初期化</output></p>
+<p class="sandbox-help">WASD 移動 · Q/E 上下 · Shift 加速 · ドラッグ 回転 · ホイール 前後</p>
+<details class="sandbox-metrics"><summary>メトリクス</summary><dl id="gpu-info"></dl></details>
+<noscript><p>JavaScriptが必要です</p></noscript>
+</div>
+<aside class="sandbox-inspector" aria-label="レンダリング設定">{{ with .Resources.Get "controls.txt" }}{{ .Content | safeHTML }}{{ end }}</aside>
+</section>
+{{ if gt (len $parts) 1 }}<div class="article-body sandbox-docs">{{ index $parts 1 | safeHTML }}</div>{{ end }}
+<div class="article-body"><h2>ソース</h2>
+{{ with .OutputFormats.Get "Source" }}<p><a href="{{ .RelPermalink }}">直接表示</a></p>{{ end }}
+<ul>{{ range .Resources.Match "*" }}{{ $generated := and (strings.HasSuffix .Name ".js") ($.Resources.Get (replaceRE `\.js$` ".ts" .Name)) }}{{ if and (not $generated) (or (strings.HasSuffix .Name ".ts") (strings.HasSuffix .Name ".js") (strings.HasSuffix .Name ".wgsl") (eq .Name "controls.txt")) }}<li>{{ .Name }} · <a href="https://github.com/nagakagachi/nagakagachi.github.io/blob/main/site/content/{{ replace $.File.Dir "\\" "/" }}{{ .Name }}">GitHub</a></li>{{ end }}{{ end }}</ul></div>
+</article>
+<script type="module" src="{{ (.Resources.Get "main.js").RelPermalink }}"></script>
+{{ end }}

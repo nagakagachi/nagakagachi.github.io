@@ -1,0 +1,6 @@
+{{ define "main" }}
+<article class="article">
+<header class="article-header"><a class="back-link" href="{{ .RelPermalink }}">← {{ .Title }}</a><h1>{{ .Title }} ソース</h1></header>
+<div class="article-body">{{ range .Resources.Match "*" }}{{ $generated := and (strings.HasSuffix .Name ".js") ($.Resources.Get (replaceRE `\.js$` ".ts" .Name)) }}{{ if and (not $generated) (or (strings.HasSuffix .Name ".ts") (strings.HasSuffix .Name ".js") (strings.HasSuffix .Name ".wgsl") (eq .Name "controls.txt")) }}<h2>{{ .Name }}</h2>{{ $language := "text" }}{{ if strings.HasSuffix .Name ".js" }}{{ $language = "javascript" }}{{ end }}{{ if strings.HasSuffix .Name ".ts" }}{{ $language = "typescript" }}{{ end }}{{ if eq .Name "controls.txt" }}{{ $language = "html" }}{{ end }}{{ highlight .Content $language "" }}{{ end }}{{ end }}</div>
+</article>
+{{ end }}

@@ -6,7 +6,11 @@ build:
 
 # RenderingSandboxの制作規約
 
-- 正本はこのフォルダ。TerrainRendering00から派生した独立した実験環境であり、元実験のファイルをimport/fetchしない。複製したソースも今後はこの実験が所有する。
+- このフォルダは版一覧の入口。実装の正本はv00/、v01/等の各版フォルダ。TerrainRendering00から派生した独立した実験環境であり、他実験や他の版のファイルをimport/fetchしない。
+- 公開初版はv00。公開済みの版は固定し、新しいテーマの開発は直前の版を複製した次の版で進める。JS/TS・WGSL・controls.txt等の実行資源は版ごとに所有し、変更され続ける共通ライブラリを過去版から参照しない。
+- 公開済みの版はv00とv01。以後の機能追加は次の版で行い、ユーザーが公開を指示するまで下書きにする。小修正ごとに版を増やさず、実験の節目で区切る。
+- 公開版の動作を変える修正が必要なら、その版を修正するユーザー指示を確認する。URL、日付、版間ナビゲーション等の管理情報は実装の変更と区別する。
+- 各版はindex.mdのleaf bundle。親は_index.mdのbranch bundleとし、最新版リンクは新しい版の公開時に更新する。下書きへのリンクを公開版本文や親の本文へ直接置かない。
 - 描画PassはZPrePass → ShadowPass → ForwardShadingPassの順序を維持する。メイン深度を先に確定し、将来のSSAO等が参照できる構造にする。
 - この実験内では位置計算・視点情報・描画Pass等を共通化する。モデルを追加するときは`render-passes.ts`の`OpaqueRenderable`契約へ登録する。
 - 不透明物は位置専用のZOnlyとForwardのバリエーションを持つ。ZOnlyはZPrePassとShadowPassで共有し、視点ごとのUniform・可視リストだけを変える。深度のみのPipelineにPSを追加しない。
@@ -16,7 +20,7 @@ build:
 - 地形の位置・標高・LOD接続は`terrain-geometry.wgsl`が原本。両視点で同じ候補タイル配置とFP16 Height Clipmapを参照し、受け手とキャスターの形状を一致させる。
 - 可視リストへの領域予約はsubgroupまたはworkgroupで集約する。タイルごとの単一カウンターへのグローバルAtomicへ戻さない。カリングのフリーズは両視点のリスト・配置・標高窓・光源投影をまとめて固定する。
 - コメントは日本語。シェーダーはUTF-8 BOMなしとし、BOMや不正UTF-8をロード時に黙って除去・変換しない。例外で対象ファイルを示す。
-- 天球の放射輝度は`sky-common.wgsl`を原本とし、背景ピクセルレイとOctahedral生成で共有する。SHはl=0,1の4係数、[定数,X,Y,Z]の基底で統一する。立体角補正とLambert畳み込みを維持し、空が変わらないカメラ操作で再投影しない。
+- 天球の放射輝度は`sky-common.wgsl`を原本とし、背景ピクセルレイとOctahedral生成で共有する。v00のSHはl=0,1の4係数、[定数,X,Y,Z]の基底。次の版で次数を変える場合も、その版内で投影・評価を統一する。立体角補正とLambert畳み込みを維持し、空が変わらないカメラ操作で再投影しない。
 - 追加のGPU資源は終了・再実行・初期化失敗時に破棄する。静止画のために無条件の連続描画を追加しない。
-- 検証には`tests/rendering-sandbox.test.mjs`と`tests/rendering-sandbox.html`を使う。後者はOS一時領域の下書きビルド先へ一時配置し、実シェーダーでZPrePassの被覆一致・影の比較方向・視野外キャスターを確認する。`tests/sky-environment.html`では解析解のある空でSHと立体角補正、背景の深度・カメラ対応を確認する。
-- 初版は公開済み。公開日とlastmodはindex.mdで管理する。以降の変更のコミット・push・公開はユーザーの指示に従う。
+- 検証には`tests/rendering-sandbox.test.mjs`（v00/v01）と`tests/rendering-sandbox.html`（既定v01、?version=v00で過去版）を使う。後者はOS一時領域の下書きビルド先へ一時配置し、実シェーダーでZPrePassの被覆一致・影の比較方向・視野外キャスターを確認する。`tests/sky-environment.html`では解析解のある空でSHと立体角補正、背景の深度・カメラ対応を確認する。
+- 日付は各版のindex.mdで管理する。コミット・push・公開はユーザーの指示に従う。

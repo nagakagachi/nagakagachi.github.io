@@ -1,5 +1,5 @@
 ﻿---
-title: "RenderingSandbox"
+title: "RenderingSandbox v00"
 date: "2026-10-26"
 lastmod: "2026-10-26"
 layout: "experiment"
@@ -8,6 +8,10 @@ description: "地形や配置物を使ったレンダリング技法の実験環
 ---
 
 学習用にAgentCodingで生成したデモです
+
+[版一覧](../) · [次の版：v01](../v01/)
+
+公開初版を保存したv00です。この版の実装は固定し、新しい開発は別の版で行います。
 
 TerrainRendering00をベースにしたレンダリング実験環境です。現在はプロシージャル地形に、ZPrePass・ShadowPass・ForwardShadingPassを適用し、ピクセルレイの天球と1次SHのDiffuse SkyLightを加えています。今後、配置物や新しいシャドウ技法、GIを追加していく実験環境の初版です。
 
@@ -110,7 +114,7 @@ Shadow MapもNDC Z=0〜1のReversed Zで、clear=0、書込比較はgreater、�
 
 ## 地形と資源
 
-地形は[TerrainRendering00](../terrain-rendering00/)と同じFP16 Height Clipmap方式で、1024²×7段の初期設定で14 MiBです。64×64セルのタイル共有IBを使い、VBは持ちません。Shadow Mapはdepth32floatの2048²で16 MiB、メイン深度は960×540で約1.98 MiBです。タイル描画用・ワイヤーフレーム用IBも共有します。天球はOctahedral Map 512 KiB、SH局所和64 KiB、SH係数64バイト、生成条件とピクセルレイ基底のUniform計64バイトです。
+地形は[TerrainRendering00](../../terrain-rendering00/)と同じFP16 Height Clipmap方式で、1024²×7段の初期設定で14 MiBです。64×64セルのタイル共有IBを使い、VBは持ちません。Shadow Mapはdepth32floatの2048²で16 MiB、メイン深度は960×540で約1.98 MiBです。タイル描画用・ワイヤーフレーム用IBも共有します。天球はOctahedral Map 512 KiB、SH局所和64 KiB、SH係数64バイト、生成条件とピクセルレイ基底のUniform計64バイトです。
 
 この実験のソースは同じフォルダ内で独立して管理します。TerrainRendering00のコードや挙動は変更しません。
 

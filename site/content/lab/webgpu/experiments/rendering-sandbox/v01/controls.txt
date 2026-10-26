@@ -1,0 +1,37 @@
+<details class="sandbox-panel" open><summary>描画</summary>
+<label class="check"><input id="gpu-culling" type="checkbox" checked> フラスタムカリング</label>
+<label class="check"><input id="gpu-freeze" type="checkbox"> カリング・配置を固定</label>
+<label class="check"><input id="gpu-aerial" type="checkbox" checked> 大気遠近法</label>
+<label class="parameter"><span>移動速度</span><input id="gpu-speed" type="range" min="10" max="600" step="10" value="150"><output id="gpu-speed-value">150 m/s</output></label>
+</details>
+<details class="sandbox-panel"><summary>地形</summary>
+<label class="parameter"><span>シード</span><input id="gpu-seed" type="number" min="0" max="4294967295" step="1" value="12343725"></label>
+<label class="parameter"><span>標高振幅</span><input id="gpu-amplitude" type="range" min="100" max="2000" step="50" value="2000"><output id="gpu-amplitude-value">2000 m</output></label>
+<label class="parameter"><span>山スケール</span><input id="gpu-scale" type="range" min="500" max="8000" step="100" value="3100"><output id="gpu-scale-value">3100 m</output></label>
+<button id="gpu-regenerate" type="button" disabled>地形を再生成</button>
+<label class="parameter"><span>タイル密度</span><select id="gpu-density"><option value="4">4×4</option><option value="8">8×8</option><option value="16">16×16</option></select></label>
+<label class="parameter"><span>カバー半径</span><select id="gpu-radius"><option value="250">250 m</option><option value="500">500 m</option><option value="1000">1 km</option><option value="2000">2 km</option><option value="4000">4 km</option><option value="8000">8 km</option><option value="16000" selected>16 km</option></select></label>
+<label class="check"><input id="gpu-snap" type="checkbox" checked> セルスナップ</label>
+</details>
+<details class="sandbox-panel" open><summary>ライト・シャドウ</summary>
+<label class="parameter"><span>方位角</span><input id="gpu-light-azimuth" type="range" min="0" max="360" step="1" value="60"><output id="gpu-light-azimuth-value">60°</output></label>
+<label class="parameter"><span>仰角</span><input id="gpu-light-elevation" type="range" min="1" max="85" step="1" value="30"><output id="gpu-light-elevation-value">30°</output></label>
+<label class="check"><input id="gpu-shadows" type="checkbox" checked> シャドウ</label>
+<label class="parameter"><span>投影半幅</span><select id="gpu-shadow-width"><option value="512">512 m</option><option value="1024">1 km</option><option value="2048" selected>2 km</option><option value="4096">4 km</option><option value="8192">8 km</option><option value="16384">16 km</option></select></label>
+<label class="parameter"><span>深度バイアス</span><input id="gpu-depth-bias" type="range" min="0" max="0.001" step="0.00001" value="0.00005"><output id="gpu-depth-bias-value">0.00005</output></label>
+<label class="parameter"><span>法線バイアス</span><input id="gpu-normal-bias" type="range" min="0" max="10" step="0.1" value="1"><output id="gpu-normal-bias-value">1 m</output></label>
+<label class="parameter"><span>PCF</span><select id="gpu-pcf"><option value="0">1 tap</option><option value="1" selected>3×3</option><option value="2">5×5</option></select></label>
+</details>
+<details class="sandbox-panel"><summary>ポストプロセス</summary>
+<label class="parameter"><span>露出</span><input id="gpu-exposure" type="range" min="0.1" max="4" step="0.1" value="1"><output id="gpu-exposure-value">1</output></label>
+</details>
+<details class="sandbox-panel"><summary>SkyLight</summary>
+<label class="parameter"><span>SkyLight強度</span><input id="gpu-sky-intensity" type="range" min="0" max="2" step="0.05" value="1"><output id="gpu-sky-intensity-value">1</output></label>
+</details>
+<details class="sandbox-panel"><summary>診断</summary>
+<label class="check"><input id="gpu-normals" type="checkbox"> 法線表示</label>
+<label class="check"><input id="gpu-wireframe" type="checkbox"> ワイヤーフレーム</label>
+<label class="check"><input id="gpu-tile-colors" type="checkbox"> タイル色分け</label>
+<label class="check"><input id="gpu-shadow-mask" type="checkbox"> シャドウ可視率</label>
+<label class="parameter"><span>可視リスト集約</span><select id="gpu-compaction"><option value="auto">自動</option><option value="workgroup">workgroup</option></select></label>
+</details>
