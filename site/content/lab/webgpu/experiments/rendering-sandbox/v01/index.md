@@ -87,7 +87,7 @@ var linearHdr = albedo * direct + skyDiffuse;
 
 直接光にはLambertの1/π、太陽から地表までの大気透過率、法線とライト方向の内積、Shadow Mapの可視率を適用します。SkyLightは法線方向に応じた天空からの拡散光です。影の中だけでなく全体へ加算し、直接光のShadow Mapによる可視率は掛けません。
 
-### Octahedral Mapと1次SH
+### Octahedral Mapと2次SH
 
 ```wgsl
 textureStore(skyMap, vec2i(id.xy), vec4f(skyRadiance(direction), 1.0));
@@ -96,13 +96,15 @@ textureStore(skyMap, vec2i(id.xy), vec4f(skyRadiance(direction), 1.0));
 背景と同じ天空関数を、256²・`rgba16float`のOctahedral Mapへ描画します。Yを上方向とし、下半球も含む全方向の線形放射輝度を保持します。キューブマップは使いません。
 
 ```wgsl
-let kernel = select(0.6666666667, 1.0, c == 0u);
+let kernel = select(select(0.25, 0.6666666667, c < 4u), 1.0, c == 0u);
 result.coefficients[c] = vec4f(sums[c * 64u].rgb * normalization * kernel, 0.0);
 ```
 
-1次SHはl=0,1の2バンド・4係数で、基底の順序は[定数, X, Y, Z]です。Octahedral復号のJacobian `1/|v|³`で立体角を補正し、総立体角を4πへ正規化して投影します。
+2次SHはl=0,1,2の3バンド・9係数です。基底の順序は[定数, X, Y, Z, XY, YZ, 3Y²−1, XZ, X²−Z²]で、各項に正規直交基底の係数を掛けます。Octahedral復号のJacobian `1/|v|³`で立体角を補正し、総立体角を4πへ正規化して投影します。
 
-Lambertのclamped cosine畳み込みとBRDFの1/πを係数へ含めるため、帯域ごとの係数は0次が1、1次が2/3です。投影はworkgroup内で局所和を作り、別のdispatchで4係数へ集約します。グローバルAtomicや係数のCPU読み戻しは使いません。
+Lambertのclamped cosine畳み込みとBRDFの1/πを係数へ含めるため、帯域ごとの係数は0次が1、1次が2/3、2次が1/4です。投影はworkgroup内で局所和を作り、別のdispatchで9係数へ集約します。グローバルAtomicや係数のCPU読み戻しは使いません。
+
+1次の打切りで失われていた法線方向による差を、2次の項まで含めて保持します。天空の全テクセルを使うcosine積分との比較で確認しています。
 
 MapとSHは初回・太陽方向変更・観測高度変更時に更新します。水平移動・カメラ回転・露出・SkyLight強度の変更では再投影しません。SH評価の負値は0に抑えます。
 
@@ -162,7 +164,7 @@ ForwardShadingPassは`rgba16float`へ線形HDRを出力し、露出・トーン�
 | メイン深度 | depth32float、約1.98 MiB |
 | シーンHDRカラー | rgba16float、約3.96 MiB |
 | 天空Octahedral Map | 256²、rgba16float、512 KiB |
-| SH投影用局所和・最終係数 | 64 KiB・64 B |
+| SH投影用局所和・最終係数 | 144 KiB・144 B |
 
 ## 現在の制約
 

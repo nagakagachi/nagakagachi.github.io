@@ -87,7 +87,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     let point = origin + relative;
     let sunT = solarTransmittance(point, lighting.light.xyz);
     let direct = lighting.light.w * sunT * max(dot(n, lighting.light.xyz), 0.0) * visibility / 3.14159265;
-    // GPUで投影・Lambert畳み込みした1次SHを、ワールド空間の法線で評価する。
+    // GPUで投影・Lambert畳み込みした2次SHを、ワールド空間の法線で評価する。
     let skyDiffuse = albedo * evaluateSkySH(skySH, n) * lighting.skyDiffuse.w;
     // 直接光とSkyLightをシーンリニアHDRで加算する。1を超える値を保持する。
     var linearHdr = albedo * direct + skyDiffuse;

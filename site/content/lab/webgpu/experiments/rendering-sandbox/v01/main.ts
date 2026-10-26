@@ -490,7 +490,7 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
         detail(configuration, 'HDRカラー', `rgba16float / ${canvas.width}×${canvas.height} / ${(canvas.width * canvas.height * 8 / 1048576).toFixed(2)} MiB / PostProcessPassで表示変換`);
         detail(configuration, 'タイル共有IB', `uint16 / タイル描画 ${indices.size.toLocaleString()} B + ワイヤーフレーム ${wireIndices.size.toLocaleString()} B`);
         detail(configuration, 'GPU描画データ', '可視タイル 6,400 B×2 / Indirect 20 B×3 / Scene 480 B×2 / Lighting 160 B / 表示読戻し40 B');
-        detail(configuration, '天球リソース', 'Octahedral 256² rgba16float 512 KiB / SH局所和64 KiB / 4係数64 B / 生成・表示Uniform計80 B');
+        detail(configuration, '天球リソース', 'Octahedral 256² rgba16float 512 KiB / SH局所和144 KiB / 9係数144 B / 生成・表示Uniform計80 B');
         detail(configuration, '描画Pass', 'ZPrePass → ShadowPass → ForwardShadingPass（HDR・Equal）→ PostProcessPass（ACES Filmic・sRGB）');
         const shadowInfo = detail(configuration, 'Shadow Map', '');
         const skyInfo = detail(configuration, 'SkyLight Diffuse', '');
@@ -607,7 +607,7 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
             updateDetail(heightInfo, `1024×1024 × ${activeCache.count}段 / FP16 ${(activeCache.bytes / 1048576).toFixed(0)} MiB / 間隔 ${Array.from({ length: activeCache.count }, (_, l) => 2 ** l).join('・')} m`);
             updateDetail(generationInfo, `seed ${parameters.seed} / 振幅 ${parameters.amplitude} m / 山スケール ${parameters.scale} m / 高周波は標高段ごとに除去`);
             updateDetail(layoutInfo, `${layout.levels}段 / セル ${layout.steps.join('・')} m / 半径 ${radius.value} m / 外周半幅 ${layout.radius} m`);
-            updateDetail(skyInfo, `地球・単一散乱 / 観測高度 ${(Math.max(camera.position[1] + ATMOSPHERE_REFERENCE_ALTITUDE, 2)).toFixed(0)} m / 1次SH / 強度 ${skyIntensity.value}`);
+            updateDetail(skyInfo, `地球・単一散乱 / 観測高度 ${(Math.max(camera.position[1] + ATMOSPHERE_REFERENCE_ALTITUDE, 2)).toFixed(0)} m / 2次SH / 強度 ${skyIntensity.value}`);
             updateDetail(shadowInfo, `2048² depth32float / 16 MiB / 光源平面 ${Number(shadowWidth.value) * 2} m四方 / Reversed Z / ${shadows.checked ? 'ON' : 'OFF'}`);
             updateDetail(updateInfo, `#${updates} / ${freeze.checked ? 'フリーズ中（標高キャッシュも固定）' : 'カメラ追従中'}`);
         }

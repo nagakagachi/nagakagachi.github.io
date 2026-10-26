@@ -1,0 +1,113 @@
+<!doctype html>
+<meta charset="utf-8"><title>RenderingSandbox 色とSkyLightの検証</title>
+<style>body{background:#152127;color:#e1e7e7;font:15px monospace;padding:20px}pre{white-space:pre-wrap}canvas{width:360px;height:50px;image-rendering:pixelated}</style>
+<h1>色変換とSkyLightの検証</h1>
+<p>上：実シェーダーの手動sRGB変換 / 下：sRGB Attachmentの自動変換</p>
+<canvas id="manual" width="6" height="1"></canvas><br><canvas id="hardware" width="6" height="1"></canvas>
+<button id="run">実行</button><pre id="result">未実行</pre>
+<script type="module">
+const button=document.querySelector('#run'),output=document.querySelector('#result');
+button.onclick=async()=>{
+ let device,environment;const resources=[],posts=[],contexts=[];button.disabled=true;
+ try{
+  const root='/lab/webgpu/experiments/rendering-sandbox/v01/';
+  const {PostProcess}=await import(root+'post-process.js');
+  const {SkyEnvironment}=await import(root+'sky-environment.js');
+  const adapter=await navigator.gpu.requestAdapter();if(!adapter)throw Error('GPUなし');
+  device=await adapter.requestDevice();device.pushErrorScope('validation');
+  const load=async name=>{const r=await fetch(root+name,{cache:'no-cache'});if(!r.ok)throw Error(name);return r.text();};
+  const module=async code=>{const m=device.createShaderModule({code});const errors=(await m.getCompilationInfo()).messages.filter(e=>e.type==='error');if(errors.length)throw Error(errors.map(e=>e.message).join('\n'));return m;};
+  const texture=d=>{const t=device.createTexture(d);resources.push(t);return t;};
+  const buffer=(size,usage)=>{const b=device.createBuffer({size,usage});resources.push(b);return b;};
+  const code=await load('post-process.wgsl');
+  const manualModule=await module(code),autoModule=await module(code.replace('linearToSrgb(mapped)','mapped'));
+  const hdr=texture({size:[6,1],format:'rgba16float',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.TEXTURE_BINDING});
+  const source=await module(`
+@vertex fn vs(@builtin(vertex_index) i:u32)->@builtin(position) vec4f{
+ let p=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));return vec4f(p[i],0,1);
+}
+@fragment fn fs(@builtin(position) p:vec4f)->@location(0) vec4f{
+ let v=array<f32,6>(0.001,0.018,0.18,1.0,4.0,16.0);return vec4f(vec3f(v[u32(p.x)]),1);
+}`);
+  const pipeline=await device.createRenderPipelineAsync({layout:'auto',vertex:{module:source,entryPoint:'vs'},fragment:{module:source,entryPoint:'fs',targets:[{format:'rgba16float'}]}});
+  const format=navigator.gpu.getPreferredCanvasFormat(),srgbFormat=format+'-srgb';
+  const canvases=['manual','hardware'].map(id=>document.getElementById(id));
+  for(let i=0;i<2;i++){
+   const context=canvases[i].getContext('webgpu');
+   context.configure({device,format,alphaMode:'opaque',viewFormats:i?[srgbFormat]:[],usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});
+   contexts.push(context);
+   posts.push(await PostProcess.create(device,i?autoModule:manualModule,hdr.createView(),i?srgbFormat:format));
+  }
+  const read=buffer(512,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
+  const encoder=device.createCommandEncoder();
+  const pass=encoder.beginRenderPass({colorAttachments:[{view:hdr.createView(),loadOp:'clear',storeOp:'store',clearValue:[0,0,0,1]}]});
+  pass.setPipeline(pipeline);pass.draw(3);pass.end();
+  contexts.forEach((ctx,i)=>{
+   const target=ctx.getCurrentTexture();posts[i].encode(encoder,target.createView(i?{format:srgbFormat}:{}),1);
+   encoder.copyTextureToBuffer({texture:target},{buffer:read,offset:256*i,bytesPerRow:256},[6,1]);
+  });
+  // Canvasの表示用テクスチャが次フレームで失効する前に、同じタスクで2Dへ複写する。
+  device.queue.submit([encoder.finish()]);
+  const sample=document.createElement('canvas');sample.width=6;sample.height=1;
+  const ctx=sample.getContext('2d',{colorSpace:'srgb'});ctx.drawImage(canvases[0],0,0);
+  const bitmap=ctx.getImageData(0,0,6,1).data;
+  await read.mapAsync(GPUMapMode.READ);
+  const pixels=new Uint8Array(read.getMappedRange()).slice();read.unmap();
+  const manual=Array.from({length:6},(_,i)=>pixels[4*i]);
+  const automatic=Array.from({length:6},(_,i)=>pixels[256+4*i]);
+  manual.forEach((v,i)=>{if(Math.abs(v-automatic[i])>1)throw Error('手動/ハードウェアsRGB変換不一致');});
+  manual.forEach((v,i)=>{if(Math.abs(v-bitmap[4*i])>1)throw Error(`Canvas読み戻し不一致: 手動=${manual.join('/')} Canvas2D=${Array.from({length:6},(_,j)=>bitmap[4*j]).join('/')}`);});
+  const log=[`Canvas=${format}, colorSpace=${contexts[0].getConfiguration().colorSpace}`,
+   `手動sRGB=${manual.join('/')} / 自動sRGB=${automatic.join('/')}`,'Canvas→2D読み戻し一致：二重ガンマなし PASS'];
+  const [atmo,common,oct,sh,gen,project,reduce,render]=await Promise.all(['atmosphere.wgsl','sky-common.wgsl','sky-octahedral.wgsl','sky-sh.wgsl','sky-generate.wgsl','sky-project.wgsl','sky-reduce.wgsl','sky-render.wgsl'].map(load));
+  environment=await SkyEnvironment.create(device,{generate:await module(atmo+common+oct+gen),project:await module(oct+sh+project),reduce:await module(sh+reduce),render:await module(atmo+common+render)},'rgba16float');
+  const skyRead=buffer(524288+144,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
+  const e=device.createCommandEncoder();
+  const sun=[0.75,0.5,Math.sqrt(3)/4];
+  environment.encode(e,sun,0,0,1,2200);
+  e.copyTextureToBuffer({texture:environment.map},{buffer:skyRead,bytesPerRow:2048},[256,256]);
+  e.copyBufferToBuffer(environment.coefficients,0,skyRead,524288,144);device.queue.submit([e.finish()]);
+  await skyRead.mapAsync(GPUMapMode.READ);
+  const skyBytes=skyRead.getMappedRange();
+  const half=new Uint16Array(skyBytes,0,262144).slice();
+  const coefficients=new Float32Array(skyBytes,524288,36).slice();skyRead.unmap();
+  const decode=b=>{const sign=b&32768?-1:1,exp=(b>>10)&31,m=b&1023;return sign*(exp===0?m*2**-24:(1+m/1024)*2**(exp-15));};
+  const normals=[[0,1,0],[0.5,Math.sqrt(0.75),0],[-0.5,Math.sqrt(0.75),0],[Math.sqrt(0.75),0.5,0],[-Math.sqrt(0.75),0.5,0],[0,Math.sqrt(0.75),0.5],[0,Math.sqrt(0.75),-0.5],[0,-1,0]];
+  const integrals=normals.map(()=>[0,0,0]);let weights=0;
+  // 製品の2次SHを独立CPU投影で検証し、旧1次の打切りとも比較する。
+  const basis9=d=>[0.2820947918,...d.map(v=>0.4886025119*v),
+   1.0925484306*d[0]*d[1],1.0925484306*d[1]*d[2],
+   0.3153915653*(3*d[1]*d[1]-1),1.0925484306*d[0]*d[2],
+   0.5462742153*(d[0]*d[0]-d[2]*d[2])];
+  const projected=Array.from({length:9},()=>[0,0,0]);
+  for(let y=0;y<256;y++)for(let x=0;x<256;x++){
+   let vx=(x+0.5)/128-1,vz=(y+0.5)/128-1,vy=1-Math.abs(vx)-Math.abs(vz);
+   if(vy<0){const oldX=vx;vx=(1-Math.abs(vz))*(vx>=0?1:-1);vz=(1-Math.abs(oldX))*(vz>=0?1:-1);}
+   const len=Math.hypot(vx,vy,vz),weight=1/len**3,d=[vx/len,vy/len,vz/len];weights+=weight;
+   const radiance=[0,1,2].map(c=>decode(half[(y*256+x)*4+c]));
+   basis9(d).forEach((b,j)=>{for(let c=0;c<3;c++)projected[j][c]+=radiance[c]*weight*b;});
+   normals.forEach((n,i)=>{const cosine=Math.max(0,n.reduce((sum,v,c)=>sum+v*d[c],0));for(let c=0;c<3;c++)integrals[i][c]+=radiance[c]*weight*cosine;});
+  }
+  const luma=c=>c[0]*0.2126+c[1]*0.7152+c[2]*0.0722;
+  projected.forEach((rgb,j)=>rgb.forEach((v,c)=>{
+   projected[j][c]=v*4*Math.PI/weights*(j===0?1:j<4?2/3:1/4);
+   if(Math.abs(projected[j][c]-coefficients[j*4+c])>0.0001)throw Error('GPUのSH投影と独立CPU投影が不一致');
+  }));
+  log.push('GPUのSH投影と独立CPU投影一致 PASS');
+  log.push('天空高度2200m・方位60°/仰角30°、アルベド1：');
+  normals.forEach((n,i)=>{
+   const basis=[0.2820947918,...n.map(v=>0.4886025119*v)];
+   const value=[0,1,2].map(c=>Math.max(0,basis.reduce((sum,b,j)=>sum+b*coefficients[j*4+c],0)));
+   const reference=integrals[i].map(v=>v*4/weights);
+   const second=[0,1,2].map(c=>Math.max(0,basis9(n).reduce((sum,b,j)=>sum+b*projected[j][c],0)));
+   const gpuSecond=[0,1,2].map(c=>Math.max(0,basis9(n).reduce((sum,b,j)=>sum+b*coefficients[j*4+c],0)));
+   if(gpuSecond.some((v,c)=>Math.abs(v-second[c])>0.0001))throw Error('製品2次SHとCPU評価不一致');
+   if(!value.every(Number.isFinite)||!reference.every(Number.isFinite))throw Error('SkyLight非有限値');
+   log.push(`法線[${n.map(v=>v.toFixed(2)).join(',')}] 1次SH=${luma(value).toFixed(4)} / 製品2次SH=${luma(gpuSecond).toFixed(4)} / 直接積分=${luma(reference).toFixed(4)}`);
+  });
+  const error=await device.popErrorScope();if(error)throw Error(error.message);
+  output.textContent='PASS\n'+log.join('\n')+'\nWebGPU validation errorなし';
+ }catch(e){output.textContent='FAIL: '+e.message;}
+ finally{environment?.dispose();posts.forEach(p=>p.dispose());contexts.forEach(c=>c.unconfigure());resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
+};
+</script>

@@ -3,6 +3,7 @@ import type { Vec3 } from './render-math.js';
 import type { BackgroundRenderable } from './render-passes.js';
 
 export const SKY_MAP_SIZE = 256;
+export const SKY_SH_COEFFICIENTS = 9;
 export const SKY_GROUPS = SKY_MAP_SIZE * SKY_MAP_SIZE / 64;
 export interface SkyModules {
     generate: GPUShaderModule;
@@ -50,9 +51,9 @@ export class SkyEnvironment implements BackgroundRenderable {
         this.pipelines = pipelines;
         this.map = device.createTexture({ label: 'Sky Octahedral 256²', size: [SKY_MAP_SIZE, SKY_MAP_SIZE], format: 'rgba16float',
             usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC });
-        this.coefficients = device.createBuffer({ label: 'Sky 1次SH 4係数RGB', size: 64,
+        this.coefficients = device.createBuffer({ label: 'Sky 2次SH 9係数RGB', size: SKY_SH_COEFFICIENTS * 16,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_SRC });
-        this.partials = device.createBuffer({ label: 'Sky SH局所和', size: SKY_GROUPS * 4 * 16, usage: GPUBufferUsage.STORAGE });
+        this.partials = device.createBuffer({ label: 'Sky SH局所和', size: SKY_GROUPS * SKY_SH_COEFFICIENTS * 16, usage: GPUBufferUsage.STORAGE });
         this.parameters = device.createBuffer({ label: 'Sky生成条件', size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         this.view = device.createBuffer({ label: 'Skyピクセルレイの基底', size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         this.generateGroup = device.createBindGroup({ layout: pipelines.generate.getBindGroupLayout(0), entries: [

@@ -28,10 +28,11 @@ button.onclick=async()=>{
             environments.push(result);return result;
         }
         const buffer=(size,usage)=>{const b=device.createBuffer({size,usage});resources.push(b);return b;};
-        const coeffRead=buffer(64,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
+        const coefficientBytes=version==='v01'?144:64;
+        const coeffRead=buffer(coefficientBytes,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
         async function snapshot(env,light,yaw=0,pitch=0,altitude=200,exposure=1){
             const encoder=device.createCommandEncoder();const changed=env.encode(encoder,light,yaw,pitch,1,altitude,exposure);
-            encoder.copyBufferToBuffer(env.coefficients,0,coeffRead,0,64);device.queue.submit([encoder.finish()]);
+            encoder.copyBufferToBuffer(env.coefficients,0,coeffRead,0,coefficientBytes);device.queue.submit([encoder.finish()]);
             await coeffRead.mapAsync(GPUMapMode.READ);const values=new Float32Array(coeffRead.getMappedRange()).slice();coeffRead.unmap();return {values,changed};
         }
         const prefix='struct SkyParameters { sun:vec4f } @group(0) @binding(0) var<uniform> sky:SkyParameters;';
@@ -39,19 +40,28 @@ button.onclick=async()=>{
         const analytic=await environment(prefix+'fn skyRadiance(d:vec3f)->vec3f{return vec3f(0.4+0.3*dot(d,sky.sun.xyz));}');
         const quartic=await environment(prefix+'fn skyRadiance(d:vec3f)->vec3f{let t=dot(d,sky.sun.xyz);return vec3f(0.2+0.6*t*t*t*t);}');
         const production=await environment(common);
-        const basis=d=>[0.2820947918,...d.map(v=>0.4886025119*v)];
+        const basis=d=>[0.2820947918,...d.map(v=>0.4886025119*v),...(version==='v01'?[
+            1.0925484306*d[0]*d[1],1.0925484306*d[1]*d[2],0.3153915653*(3*d[1]*d[1]-1),
+            1.0925484306*d[0]*d[2],0.5462742153*(d[0]*d[0]-d[2]*d[2])]:[])];
         const evaluate=(c,n)=>[0,1,2].map(k=>basis(n).reduce((sum,b,i)=>sum+c[i*4+k]*b,0));
-        const normals=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+        const normals=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1],[0.6,0.8,0],[-0.6,0.8,0],[0,0.6,0.8],[Math.sqrt(1/3),Math.sqrt(1/3),Math.sqrt(1/3)]];
         const log=[];
         const a=await snapshot(constant,[0.25,0,0]);
         for(const n of normals)for(const v of evaluate(a.values,n))if(Math.abs(v-0.25)>0.0005)throw Error('定数空のSH不一致: '+v);
-        log.push('定数L=0.25: 全6方向のLambert Diffuse=0.25 PASS');
+        log.push('定数L=0.25: 全10方向のLambert Diffuse=0.25 PASS');
         const b=await snapshot(analytic,[0,1,0]);
         for(const n of normals)for(const v of evaluate(b.values,n)){const expected=0.4+0.2*n[1];if(Math.abs(v-expected)>0.0005)throw Error(`線形空のSH不一致: ${v}/${expected}`);}
         log.push('L=0.4+0.3*y: Diffuse上0.6/横0.4/下0.2 PASS');
         const q=await snapshot(quartic,[0,1,0]);
-        for(const n of normals)for(const v of evaluate(q.values,n))if(Math.abs(v-0.32)>0.0005)throw Error('Octahedral立体角の不一致: '+v);
-        log.push('L=0.2+0.6*y^4: 球面平均0.32、立体角重み PASS');
+        for(const n of normals)for(const v of evaluate(q.values,n)){const expected=0.32+(version==='v01'?0.6/7*(3*n[1]*n[1]-1)/2:0);if(Math.abs(v-expected)>0.0005)throw Error('Octahedral立体角/2次帯域の不一致: '+v);}
+        log.push('L=0.2+0.6*y^4: 立体角重みと帯域係数 PASS');
+        if(version==='v01'){
+            const quadratic=await environment(prefix+'fn skyRadiance(d:vec3f)->vec3f{let t=dot(d,sky.sun.xyz);return vec3f(0.4+0.3*t*t);}');
+            const direction=[0.75,0.5,Math.sqrt(3)/4];
+            const result=await snapshot(quadratic,direction);
+            for(const n of normals){const t=n.reduce((sum,v,c)=>sum+v*direction[c],0);for(const v of evaluate(result.values,n))if(Math.abs(v-(0.475+0.075*t*t))>0.0005)throw Error('2次SHの解析解不一致: '+v);}
+            log.push('回転した2次の空: 10法線で解析解と一致、l=2の1/4畳み込み PASS');
+        }
         const initial=await snapshot(production,[0.75,0.5,0.4330127]);
         const idle=await snapshot(production,[0.75,0.5,0.4330127],1.2,-0.4);
         if(idle.changed||!idle.values.every((v,i)=>v===initial.values[i]))throw Error('カメラ変更で不要なSH再投影');
