@@ -15,17 +15,21 @@ export function createLayout(density: number, requested: number): Layout {
         throw new Error('密度またはカバー半径が範囲外です');
     }
     let levels = 1;
-    while (levels < MAX_CASCADES && (128 - 4 / density) * 2 ** (levels - 1) < requested) {
+    while (levels < MAX_CASCADES && (128 - 8 / density) * 2 ** (levels - 1) < requested) {
         levels++;
     }
     const radius = 128 * 2 ** (levels - 1), steps = Array.from({ length: levels }, (_, l) => 4 / density * 2 ** l);
-    return { density, levels, count: density * density + (levels - 1) * density * density * 3 / 4, radius, guaranteed: radius - steps[levels - 1], steps };
+    return { density, levels, count: density * density + (levels - 1) * density * density * 3 / 4, radius, guaranteed: radius - 2 * steps[levels - 1], steps };
 }
 export function cascadeParameters(x: number, z: number, layout: Layout, snap: boolean): Float32Array<ArrayBuffer> {
     const out = new Float32Array(MAX_CASCADES * 4);
     for (let l = 0; l < layout.levels; l++) {
         const s = layout.steps[l];
-        out.set([snap ? Math.floor(x / s) * s : x, snap ? Math.floor(z / s) * s : z, s, 128 * 2 ** l], l * 4);
+        // 交互の対角線を持つIBの周期は2セル。1セル移動では世界上の対角線が反転する。
+        // 2セル単位で移動し、世界セルの三角形分割を維持する。
+        // 親子の原点差は最大2細セル。接続帯では粗格子の点へ共通の重みで吸収する。
+        const period = 2 * s;
+        out.set([snap ? Math.floor(x / period) * period : x, snap ? Math.floor(z / period) * period : z, s, 128 * 2 ** l], l * 4);
     }
     return out;
 }
@@ -114,8 +118,8 @@ export function createTileIndices(): {
     return { surface: new Uint16Array(values), wire: new Uint16Array(lines), vertexCount: CORE_VERTICES };
 }
 // 共通VSのCPU参照実装。すべての頂点を通常タイルの格子内に保持する。
-// 段ごとに独立した全スナップ位相で角が反転しないよう、外周4行で補正する。
-// 接線方向の偶奇集約と、境界の法線方向への原点移動には別々の重みを使う。
+// 2セルスナップによる原点差を外周8行で吸収する。
+// 同じ接続先へ集まる頂点は共通の重みを使い、立体的な縮退を維持する。
 export function tileVertex(id: number, tile: Tile, layout: Layout, origins: Float32Array): {
     x: number;
     z: number;
@@ -126,14 +130,13 @@ export function tileVertex(id: number, tile: Tile, layout: Layout, origins: Floa
     let x = ox + u * s, z = oz + v * s;
     let weight = 0;
     if (l + 1 < layout.levels) {
-        const half = layout.density * 32;
-        const wx = Math.max(0, Math.min(1, (Math.abs(u) - (half - 4)) / 4));
-        const wz = Math.max(0, Math.min(1, (Math.abs(v) - (half - 4)) / 4));
-        const w = Math.max(wx, wz);
-        x += w * (origins[(l + 1) * 4] - ox) - wz * (u - 2 * Math.floor(u / 2)) * s;
-        z += w * (origins[(l + 1) * 4 + 1] - oz) - wx * (v - 2 * Math.floor(v / 2)) * s;
-        const distance = Math.max(Math.abs(x - origins[(l + 1) * 4]), Math.abs(z - origins[(l + 1) * 4 + 1]));
-        weight = Math.max(0, Math.min(1, (distance - (origins[l * 4 + 3] - 4 * s)) / (4 * s)));
+        const cx = origins[(l + 1) * 4], cz = origins[(l + 1) * 4 + 1];
+        const tx = cx + 2 * Math.floor(u / 2) * s;
+        const tz = cz + 2 * Math.floor(v / 2) * s;
+        const distance = Math.max(Math.abs(tx - cx), Math.abs(tz - cz));
+        weight = Math.max(0, Math.min(1, (distance - (origins[l * 4 + 3] - 8 * s)) / (8 * s)));
+        x += weight * (tx - x);
+        z += weight * (tz - z);
     }
     return { x, z, weight };
 }

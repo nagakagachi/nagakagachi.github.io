@@ -47,7 +47,7 @@ fn blendedHeight(xz: vec2f, layer: u32, coarse: u32, weight: f32) -> f32 {
 }
 
 // 全タイルで通常格子を共有する。packed情報を使い、VSごとのリング判定を省く。
-// 原点差が細かい側の1セル分あっても角が反転しないよう、外周4行で補正する。
+// 2セルスナップの原点差を外周8行で吸収し、粗格子の点へ位置と標高を一致させる。
 fn worldXZ(id: u32, tile: Tile) -> GridPosition {
     let c = scene.cascades[tile.level];
     let grid = tile.coord * 64 + vec2i(i32(id % 65u), i32(id / 65u));
@@ -55,17 +55,12 @@ fn worldXZ(id: u32, tile: Tile) -> GridPosition {
     var weight = 0.0;
     if (tile.mask != 0u) {
         let coarse = scene.cascades[tile.level + 1u];
-        let half = f32(scene.layoutInfo.x * 32u);
-        let weights = clamp((abs(vec2f(grid)) - (half - 4.0)) * 0.25, vec2f(0.0), vec2f(1.0));
-        // 原点差は境界の法線方向へ、偶奇頂点の集約は接線方向へ反映する。
-        // 負の格子座標でも、ビットANDで偶奇を0または1として求められる。
-        let parity = vec2f(grid & vec2i(1));
-        xz += max(weights.x, weights.y) * (coarse.xy - c.xy)
-            - weights.yx * parity * c.z;
-        // 集約前の頂点番号ではなく、補正後の同じ世界位置には同じ標高混合率を与える。
-        // 四隅で異なる格子行の頂点が同一点へ集まっても、立体的な縮退を維持する。
-        let distance = max(abs(xz.x - coarse.x), abs(xz.y - coarse.y));
-        weight = clamp((distance - (c.w - 4.0 * c.z)) / (4.0 * c.z), 0.0, 1.0);
+        // 接続先の粗格子点を共有する頂点は同じ重みで動かす。
+        // 元の頂点位置ごとに重みを変えると、2セル移動時に角の面が反転・非縮退化する。
+        let coarseXZ = coarse.xy + vec2f((grid >> vec2u(1u)) * 2) * c.z;
+        let distance = max(abs(coarseXZ.x - coarse.x), abs(coarseXZ.y - coarse.y));
+        weight = clamp((distance - (c.w - 8.0 * c.z)) / (8.0 * c.z), 0.0, 1.0);
+        xz = mix(xz, coarseXZ, weight);
     }
     return GridPosition(xz, weight);
 }

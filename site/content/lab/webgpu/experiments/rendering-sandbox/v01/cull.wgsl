@@ -15,9 +15,9 @@ fn tileVisible(id: u32, descriptor: u32) -> bool {
     if (id >= scene.layoutInfo.z) { return false; }
     let tile = unpackTile(descriptor);
     let c = scene.cascades[tile.level];
-    // 細かい側の境界補正による移動を含むよう、2セル分の保守的な余裕を取る。
-    let lo = c.xy + vec2f(tile.coord) * 64.0 * c.z - vec2f(2.0 * c.z);
-    let hi = c.xy + vec2f(tile.coord + vec2i(1)) * 64.0 * c.z + vec2f(2.0 * c.z);
+    // 細かい側の境界補正による移動を含むよう、3セル分の保守的な余裕を取る。
+    let lo = c.xy + vec2f(tile.coord) * 64.0 * c.z - vec2f(3.0 * c.z);
+    let hi = c.xy + vec2f(tile.coord + vec2i(1)) * 64.0 * c.z + vec2f(3.0 * c.z);
     let center = vec3f((lo.x + hi.x) * 0.5, (scene.terrain.y + scene.terrain.z) * 0.5, (lo.y + hi.y) * 0.5);
     let extent = vec3f((hi.x - lo.x) * 0.5, (scene.terrain.z - scene.terrain.y) * 0.5, (hi.y - lo.y) * 0.5);
     if (scene.layoutInfo.w != 0u) {
