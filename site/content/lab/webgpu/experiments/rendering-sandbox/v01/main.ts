@@ -47,7 +47,7 @@ const regenerate = element('#gpu-regenerate', HTMLButtonElement);
 const amplitudeValue = element('#gpu-amplitude-value', HTMLOutputElement);
 const scaleValue = element('#gpu-scale-value', HTMLOutputElement);
 const shadows = element('#gpu-shadows', HTMLInputElement);
-const exposure = element('#gpu-exposure', HTMLInputElement);
+const ev100 = element('#gpu-ev100', HTMLInputElement);
 const verticalFov = element('#gpu-fov', HTMLInputElement);
 const showSkyMap = element('#gpu-sky-map', HTMLInputElement);
 const aerial = element('#gpu-aerial', HTMLInputElement);
@@ -514,7 +514,7 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
             if (disposed) {
                 return;
             }
-            const frameCamera = cameraFrame(Number(exposure.value), Number(verticalFov.value), previousPreExposure);
+            const frameCamera = cameraFrame(Number(ev100.value), Number(verticalFov.value), previousPreExposure);
             device.queue.writeBuffer(cameraBuffer, 0, frameCamera.uniform);
             const matrix = viewProjection(frameCamera.verticalFov);
             const live = !freeze.checked || updates === 0;
@@ -774,7 +774,7 @@ const lightReadouts: Array<[HTMLInputElement, HTMLOutputElement, string]> = [[az
     [depthBias, element('#gpu-depth-bias-value', HTMLOutputElement), ''],
     [normalBias, element('#gpu-normal-bias-value', HTMLOutputElement), ' m'],
     [skyIntensity, element('#gpu-sky-intensity-value', HTMLOutputElement), ''],
-    [exposure, element('#gpu-exposure-value', HTMLOutputElement), ''],
+    [ev100, element('#gpu-ev100-value', HTMLOutputElement), ' EV'],
     [verticalFov, element('#gpu-fov-value', HTMLOutputElement), '°']];
 for (const [input, output, unit] of lightReadouts) {
     input.addEventListener('input', () => { output.value = input.value + unit; scheduleDraw(); });

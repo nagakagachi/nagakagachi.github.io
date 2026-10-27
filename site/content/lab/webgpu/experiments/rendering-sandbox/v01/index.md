@@ -22,7 +22,7 @@ description: "地形・大気散乱・SHスカイライトを使った、PreExpo
 設定はビュー横のパネルにまとめています。地形シードなどは「地形」で変更し、生成ボタンで適用します。ライトの方位角0°は+Z、90°は+X、仰角は水平からの角度です。
 
 - 「大気遠近法」で、遠景の減衰と散乱光の有無を比較できます
-- 「カメラ」の露出倍率はPreExposureとして描画時に適用します。垂直画角は30〜110°で変更できます
+- 「カメラ」の露出 EV100は−10〜15で調整できます。EVが1増えると光量は半分になります。垂直画角は30〜110°で変更できます
 - 「SkyLight」の強度は地表の拡散環境光へ作用します
 - 「診断」のSky Octahedral MapをONにすると、SkyLightの入力テクスチャをビュー左上へ表示します
 - 「診断」の法線・タイル色・シャドウ可視率で形状やカリングを確認できます。可視率は白が受光、黒が遮蔽です
@@ -145,7 +145,7 @@ HDRカラーの保存にPreExposureを採用しています。レンダーター
 return vec4f(preExposeRadiance(linearHdr, cameraFrame), 1.0);
 ```
 
-本実装ではカメラの手動露出倍率を使い、地形と天球のPS出力時に適用します。ポストプロセスでは露出を再適用しません。SkyLight用のOctahedral MapとSHは露出に依存しない値を保持します。自動露出は未実装です。
+本実装では手動のEV100を `PreExposure = 2^(-EV100)` に換算し、地形と天球のPS出力時に適用します。ポストプロセスでは露出を再適用しません。SkyLight用のOctahedral MapとSHは露出に依存しない値を保持します。初期値は0 EVで、PreExposureは1です。露出補正EVとは異なり、値を上げると暗くなります。レンズ透過率の校正係数は1としています。光源強度は実測単位で校正していないため、実世界の適正EVとの対応は保証しません。自動露出は未実装です。
 
 垂直画角は地形の投影行列と天空のピクセルレイへ同じ値を渡します。露出・画角だけの変更では、環境マップやSHを再生成しません。
 
@@ -203,7 +203,7 @@ v00とv01は実行ソースをそれぞれのフォルダで所有していま�
 - Octahedralの方向表現：[PBRT 4 — Spherical Geometry](https://www.pbr-book.org/4ed/Geometry_and_Transformations/Spherical_Geometry)。+Zを極としたXYへの展開と復号
 - 拡散環境光：[GPU Gems 2 — Real-Time Computation of Dynamic Irradiance Environment Maps](https://developer.nvidia.com/gpugems/gpugems2/part-ii-shading-lighting-and-shadows/chapter-10-real-time-computation-dynamic)。2次SH・9係数による拡散照明の近似と畳み込み
 - 大気散乱：[Bruneton — Atmospheric Scattering Functions](https://ebruneton.github.io/precomputed_atmospheric_scattering/atmosphere/functions.glsl.html)。透過率・単一散乱・大気遠近法の基礎式。本実装は単一散乱の直接積分で、同資料の事前計算LUTや多重散乱は実装していません
-- PreExposure：[Epic Games — Auto Exposure / Pre-Exposure](https://dev.epicgames.com/documentation/en-us/unreal-engine/auto-exposure-in-unreal-engine#pre-exposure)。HDRカラーをシーンカラーへ保存する前にスケーリングする仕組み。本実装では自動露出ではなく手動の露出倍率を使います
+- PreExposure：[Epic Games — Auto Exposure / Pre-Exposure](https://dev.epicgames.com/documentation/en-us/unreal-engine/auto-exposure-in-unreal-engine#pre-exposure)。HDRカラーをシーンカラーへ保存する前にスケーリングする仕組み。本実装では自動露出ではなく手動のEV100から露出係数を計算します
 - トーンマッピング：[Narkowicz — ACES Filmic Tone Mapping Curve](https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/)。使用しているCC0公開のフィット近似
 - sRGB変換：[W3C — CSS Color 4, Color Conversions](https://www.w3.org/TR/css-color-4/#color-conversion-code)。線形RGBからsRGBへ符号化する伝達関数
 - Canvasの色空間：[WebGPU — GPUCanvasConfiguration](https://gpuweb.github.io/types/interfaces/GPUCanvasConfiguration.html)。表示色空間とテクスチャ形式の設定
