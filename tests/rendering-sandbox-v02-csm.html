@@ -1,0 +1,252 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>RenderingSandbox GPU regression</title>
+<style>body{background:#152127;color:#e1e7e7;font:16px monospace;padding:24px}button{font:inherit;padding:8px}pre{white-space:pre-wrap}</style>
+<h1>RenderingSandbox GPU regression</h1>
+<p>ビルド出力のルートへ置いてlocalhostから実行します。原本の地形シェーダー・Pass・カリングを使い、既知の稜線の影とZPrePassの被覆を検証します。</p>
+<p>v02のCSM Atlas・PBR出力を検証します。</p>
+<button id="run">実行</button><pre id="result">未実行</pre>
+<script type="module">
+const button = document.querySelector('#run'), output = document.querySelector('#result');
+button.onclick = async () => {
+    button.disabled = true;
+    let device;
+    const resources = [];
+    try {
+        const version = 'v02';
+        if (!/^v[0-9]{2}$/.test(version)) { throw Error('版番号が不正です'); }
+        const root = new URL(`/lab/webgpu/experiments/rendering-sandbox/${version}/`, location.href);
+        const { createTileIndices, createLayout, cascadeParameters, decodeTile, packTile } = await import(new URL('clipmap-grid.js', root));
+        const { lightDirection, shadowMatrix, frustumPlanes } = await import(new URL('render-math.js', root));
+        const { createOpaquePipelines, encodeOpaquePasses } = await import(new URL('render-passes.js', root));
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) { throw Error('GPUがありません'); }
+        device = await adapter.requestDevice();
+        device.pushErrorScope('validation');
+        const load = async name => {
+            const response = await fetch(new URL(name, root), { cache: 'no-cache' });
+            if (!response.ok) { throw Error(name + ': ' + response.status); }
+            return response.text();
+        };
+        const common = await load('tile-common.wgsl'), geometry = await load('terrain-geometry.wgsl');
+        const shLibrary = await load('sky-sh.wgsl');
+        const atmosphereLibrary = version === 'v02' ? await load('atmosphere.wgsl') : '';
+        const cameraLibrary = await load('camera.wgsl');
+        const pbrLibrary=await load('pbr.wgsl'),octLibrary=await load('sky-octahedral.wgsl');
+        const module = async code => {
+            const shader = device.createShaderModule({ code });
+            const errors = (await shader.getCompilationInfo()).messages.filter(m => m.type === 'error');
+            if (errors.length) { throw Error(errors.map(e => e.message).join('\n')); }
+            return shader;
+        };
+        const zOnly = await module(common + geometry + await load('terrain-zonly.wgsl'));
+        const forward = await module(common + geometry + shLibrary + atmosphereLibrary + cameraLibrary+pbrLibrary+octLibrary + await load('terrain-forward.wgsl'));
+        const cull = await module(common + await load('cull.wgsl') + await load('compact-workgroup.wgsl'));
+        const buffer = (size, usage, data) => {
+            const result = device.createBuffer({ size, usage: usage | GPUBufferUsage.COPY_DST });
+            resources.push(result);
+            if (data) { device.queue.writeBuffer(result, 0, data); }
+            return result;
+        };
+        const texture = desc => { const t = device.createTexture(desc); resources.push(t); return t; };
+        const grid = createTileIndices(), layout = createLayout(4, 127);
+        const origins = cascadeParameters(0, 0, layout, true);
+        // FP16で高さ8mの稜線をX=0に置き、片側だけに影が出る既知形状を作る。
+        const height = new Uint32Array(1024 * 512);
+        for (let z = 0; z < 1024; z++) {
+            for (let x = 0; x < 1024; x += 2) {
+                const signedX = x < 512 ? x : x - 1024;
+                const h = v => Math.abs(v) <= 3 ? 0x4800 : 0;
+                height[z * 512 + x / 2] = h(signedX) | (h(signedX + 1) << 16);
+            }
+        }
+        const heights = buffer(height.byteLength, GPUBufferUsage.STORAGE, height);
+        const ib = buffer(grid.surface.byteLength, GPUBufferUsage.INDEX, grid.surface);
+        const light = lightDirection(90, 30), lightVP = shadowMatrix([0, 0, 0], light, 128, 256, 1024);
+        const mainVP = new Float32Array([1/32,0,0,0, 0,0,0.01,0, 0,-1/32,0,0, 0,0,0.5,1]);
+        const makeView = matrix => {
+            const s = new Float32Array(188);
+            s.set(matrix); s.set(frustumPlanes(matrix), 16);
+            s.set([...light, 0], 40); s.set([0, 1/8, 0, 0], 44); s.set([1024, 1, 1, 0], 48);
+            s.set([0, 0, 8, 0], 52); new Uint32Array(s.buffer).set([4, 1, 16, 1], 56); s.set(origins, 60);
+            return { uniform: buffer(752, GPUBufferUsage.UNIFORM, s),
+                visible: buffer(6400, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC),
+                args: buffer(20, GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_SRC, new Uint32Array([grid.surface.length,0,0,0,0])) };
+        };
+        const main = makeView(mainVP), shadow = makeView(lightVP);
+        const groupLayout = device.createBindGroupLayout({ entries: [
+            {binding:0,visibility:GPUShaderStage.VERTEX|GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}},
+            {binding:1,visibility:GPUShaderStage.VERTEX,buffer:{type:'read-only-storage'}},
+            {binding:2,visibility:GPUShaderStage.VERTEX,buffer:{type:'read-only-storage'}}
+        ]});
+        const group = view => device.createBindGroup({layout:groupLayout,entries:[
+            {binding:0,resource:{buffer:view.uniform}},{binding:1,resource:{buffer:heights}},{binding:2,resource:{buffer:view.visible}}
+        ]});
+        const mainGroup=group(main), shadowGroup=group(shadow);
+        const shadowTexture=texture({size:[2048,2048],format:'depth32float',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.TEXTURE_BINDING});
+        const depth=texture({size:[256,256],format:'depth32float',usage:GPUTextureUsage.RENDER_ATTACHMENT});
+        const hdr = version === 'v02';
+        const colorFormat = hdr ? 'rgba16float' : 'rgba8unorm';
+        const color=texture({size:[256,256],format:colorFormat,usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});
+        const lighting=new Float32Array(116); lighting.set(lightVP);lighting.set([...light,3],16);
+        // 比較フィルタのテクセル内深度差を越える、約0.5m相当の受け手バイアス。
+        lighting.set([1,0.001,0,1/1024],20);lighting.set([0,1,0.16,0],24);
+        if(version === 'v02'){lighting.set([0,1000000,0,1],32);lighting.set([0,2000,0,0],36);}
+        for(let i=0;i<4;i++)lighting.set(lightVP,40+i*16);
+        lighting.set([128,256,512,1024],104);lighting.set([0,0,-1,0],108);lighting.set([0.45,0,0,0],112);
+        const dummy=texture({size:[1,1],format:'rgba16float',usage:GPUTextureUsage.TEXTURE_BINDING});
+        const lightBuffer=buffer(lighting.byteLength,GPUBufferUsage.UNIFORM,lighting);
+        const cameraBuffer=buffer(16,GPUBufferUsage.UNIFORM,new Float32Array([1,1,1,1]));
+        const shData=new Float32Array(hdr?36:16);
+        const shBuffer=buffer(shData.byteLength,GPUBufferUsage.UNIFORM,shData);
+        const lightingLayout=device.createBindGroupLayout({entries:[
+            {binding:0,visibility:GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}},
+            {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'depth'}},
+            {binding:2,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'comparison'}},
+            {binding:3,visibility:GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}},
+            ...(hdr?[{binding:4,visibility:GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}}]:[]),
+            {binding:5,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},{binding:6,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},{binding:7,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}}
+        ]});
+        const lightGroup=device.createBindGroup({layout:lightingLayout,entries:[
+            {binding:0,resource:{buffer:lightBuffer}},{binding:1,resource:shadowTexture.createView()},
+            {binding:2,resource:device.createSampler({compare:'greater-equal',minFilter:'linear',magFilter:'linear'})},
+            {binding:3,resource:{buffer:shBuffer}},
+            ...(hdr?[{binding:4,resource:{buffer:cameraBuffer}}]:[]),
+            {binding:5,resource:dummy.createView()},{binding:6,resource:dummy.createView()},{binding:7,resource:device.createSampler({minFilter:'linear',magFilter:'linear'})}
+        ]});
+        const pipelines=await createOpaquePipelines(device,groupLayout,lightingLayout,zOnly,forward,colorFormat);
+        const cullPipeline=await device.createComputePipelineAsync({layout:'auto',compute:{module:cull,entryPoint:'cullMain'}});
+        const cullGroup=view=>device.createBindGroup({layout:cullPipeline.getBindGroupLayout(0),entries:[
+            {binding:0,resource:{buffer:view.uniform}},{binding:1,resource:{buffer:view.visible}},{binding:2,resource:{buffer:view.args}}
+        ]});
+        const mg=cullGroup(main), sg=cullGroup(shadow);
+        const draw=(pass,pipeline,view,bg)=>{pass.setPipeline(pipeline);pass.setBindGroup(0,bg);pass.setIndexBuffer(ib,'uint16');pass.drawIndexedIndirect(view.args,0);};
+        const object={drawDepth:(pass,view)=>draw(pass,pipelines.zOnly,view==='main'?main:shadow,view==='main'?mainGroup:shadowGroup),
+            drawForward:pass=>{pass.setPipeline(pipelines.forward);pass.setBindGroup(0,mainGroup);pass.setBindGroup(1,lightGroup);pass.setIndexBuffer(ib,'uint16');pass.drawIndexedIndirect(main.args,0);},drawDebug:()=>{}};
+        const read=buffer(256*256*(hdr?8:4),GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
+        async function render(enabled){
+            lighting[20]=Number(enabled);device.queue.writeBuffer(lightBuffer,0,lighting);
+            const e=device.createCommandEncoder();e.clearBuffer(main.args,4,4);e.clearBuffer(shadow.args,4,4);
+            const c=e.beginComputePass();c.setPipeline(cullPipeline);c.setBindGroup(0,mg);c.dispatchWorkgroups(1);c.setBindGroup(0,sg);c.dispatchWorkgroups(1);c.end();
+            encodeOpaquePasses(e,color.createView(),depth.createView(),shadowTexture.createView(),[object],enabled,false);
+            e.copyTextureToBuffer({texture:color},{buffer:read,bytesPerRow:hdr?2048:1024},[256,256]);
+            device.queue.submit([e.finish()]);await read.mapAsync(GPUMapMode.READ);
+            let result;
+            if(hdr){
+                // FP16を線形値へ復号し、従来の0〜255比較と同じ単位へ揃える。1超も保持する。
+                const bits=new Uint16Array(read.getMappedRange());
+                result=Float32Array.from(bits,b=>{
+                    const sign=b&32768?-1:1,exp=(b>>10)&31,m=b&1023;
+                    return 255*sign*(exp===0?m*2**-24:(1+m/1024)*2**(exp-15));
+                });
+            }else{result=new Uint8Array(read.getMappedRange()).slice();}
+            read.unmap();return result;
+        }
+        const unshadowed=await render(false), shadowed=await render(true);
+        // 全面が白ならZOnlyとForwardのEqual位置が一致し、被覆欠落がない。
+        if(!unshadowed.every(v=>v===255)){throw Error('ZPrePass/Equal描画に欠けがあります');}
+        const pixel=(data,x,z)=>data[(Math.floor((z+32)*4)*256+Math.floor((x+32)*4))*4];
+        // 上面図では+Zが下側。稜線の光源側(+X)は明、反対側(-X)は暗。
+        const lit=pixel(shadowed,15,0), shade=pixel(shadowed,-10,0);
+        if(lit<240||shade>20){throw Error(`影の比較方向が不正: light=${lit}, shadow=${shade}`);}
+        // 直射光を0にして、一様なSkyLightだけを受光側・遮蔽側へ同じ量だけ与える。
+        lighting[19]=0;lighting[25]=0;lighting.set([0,0,0,1],28);
+        shData.set([0.25/0.2820947918,0.25/0.2820947918,0.25/0.2820947918,0]);
+        device.queue.writeBuffer(shBuffer,0,shData);
+        const skyOnly=await render(true);
+        const skyLit=pixel(skyOnly,15,0), skyShade=pixel(skyOnly,-10,0);
+        const expectedSky=hdr?255*0.04*0.96:Math.round(255*Math.pow(0.04,1/2.2));
+        if(Math.abs(skyLit-expectedSky)>1||Math.abs(skyShade-expectedSky)>1){
+            throw Error(`SkyLightが影内外で不一致: ${skyLit}/${skyShade}, expected ${expectedSky}`);
+        }
+        if(hdr){
+            shData.set([25/0.2820947918,25/0.2820947918,25/0.2820947918,0]);
+            device.queue.writeBuffer(shBuffer,0,shData);
+            const bright=await render(true);
+            if(Math.abs(pixel(bright,15,0)/255-3.84)>0.01)throw Error('Forward出力が線形HDRの4.0を保持していません');
+            device.queue.writeBuffer(cameraBuffer,0,new Float32Array([0.5,2,1,0.5]));
+            const preExposed=await render(true);
+            if(Math.abs(pixel(preExposed,15,0)/255-1.92)>0.01)throw Error('Forward出力にPreExposureが適用されていません');
+            device.queue.writeBuffer(cameraBuffer,0,new Float32Array([1,1,0.5,2]));
+        }
+        if(hdr){
+            // 一様天空L=0.25に対し、白・灰・黒の反射率が正規化Lambertの期待値に一致する。
+            shData.fill(0);shData.set([0.25/0.2820947918,0.25/0.2820947918,0.25/0.2820947918,0]);
+            device.queue.writeBuffer(shBuffer,0,shData);
+            for(const reflectance of [[1,1,1],[0.5,0.5,0.5],[0,0,0],[1,0.25,0.5]]){
+                lighting.set(reflectance,28);lighting[38]=1;
+                const image=await render(true);
+                for(const x of [15,-10]){
+                    const base=(128*256+Math.floor((x+32)*4))*4;
+                    for(let c=0;c<3;c++)if(Math.abs(image[base+c]/255-0.25*reflectance[c]*0.96)>0.001)throw Error('固定RGBアルベドのSkyLight出力が不正');
+                }
+            }
+            lighting.set([1,1,1],28);lighting[38]=1;
+        }
+        lighting[31]=0;
+        const skyOff=await render(true);
+        if(pixel(skyOff,15,0)!==0||pixel(skyOff,-10,0)!==0){throw Error('SkyLight強度0で光が残ります');}
+        if(hdr){
+            // SkyLightが0でも段0の識別色が出力され、法線の正規化や照明が混入しない。
+            device.queue.writeBuffer(main.uniform,51*4,new Float32Array([1]));
+            const cascades=await render(true),base=(128*256+188)*4;
+            for(const [c,v]of [0.85,0.18,0.15].entries())if(Math.abs(cascades[base+c]/255-v)>0.001)throw Error('Height Clipmap識別色が不正');
+            device.queue.writeBuffer(main.uniform,55*4,new Float32Array([1]));
+            const gridImage=await render(true);
+            for(const sign of [-1,1]){
+                const line=pixel(gridImage,sign*16,8),inside=pixel(gridImage,sign*8,8);
+                if(!(line<inside*0.6))throw Error('16テクセル格子の線または負座標の位相が不正');
+            }
+            device.queue.writeBuffer(main.uniform,55*4,new Float32Array([0]));
+            device.queue.writeBuffer(main.uniform,51*4,new Float32Array([0]));
+        }
+        const visibilityRead=buffer(12840,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
+        const visibilityEncoder=device.createCommandEncoder();
+        visibilityEncoder.copyBufferToBuffer(main.args,0,visibilityRead,0,20);
+        visibilityEncoder.copyBufferToBuffer(shadow.args,0,visibilityRead,20,20);
+        visibilityEncoder.copyBufferToBuffer(main.visible,0,visibilityRead,40,6400);
+        visibilityEncoder.copyBufferToBuffer(shadow.visible,0,visibilityRead,6440,6400);
+        device.queue.submit([visibilityEncoder.finish()]);await visibilityRead.mapAsync(GPUMapMode.READ);
+        const ids=new Uint32Array(visibilityRead.getMappedRange());
+        const mainCount=ids[1], shadowCount=ids[6];
+        const mainIDs=new Set([...ids.slice(10,10+mainCount)].map(v=>v&2047));
+        const offscreen=[...ids.slice(1610,1610+shadowCount)].filter(v=>!mainIDs.has(v&2047));
+        visibilityRead.unmap();
+        if(!offscreen.length){throw Error('メイン視野外のキャスターがシャドウリストに残っていません');}
+        // 追加の受光押出し平面がGPUの可視リストへ反映され、Mainへ混入しないことを確認。
+        device.queue.writeBuffer(shadow.uniform,480,new Float32Array([1,0,0,-32]));
+        device.queue.writeBuffer(shadow.uniform,736,new Uint32Array([1,0,0,0]));
+        await render(true);
+        const planeRead=buffer(40,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST),planeEncoder=device.createCommandEncoder();
+        planeEncoder.copyBufferToBuffer(main.args,0,planeRead,0,20);planeEncoder.copyBufferToBuffer(shadow.args,0,planeRead,20,20);device.queue.submit([planeEncoder.finish()]);
+        await planeRead.mapAsync(GPUMapMode.READ);const planeCounts=new Uint32Array(planeRead.getMappedRange());
+        if(planeCounts[1]!==mainCount||!(planeCounts[6]>0&&planeCounts[6]<shadowCount))throw Error('GPUのキャスター体積カリングが不正');planeRead.unmap();
+        device.queue.writeBuffer(shadow.uniform,736,new Uint32Array([0,0,0,0]));
+        // Atlasの隣接領域に反対の遮蔽値を入れ、全4段の四隅を5×5 PCFで検査する。
+        const identity=new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
+        for(let i=0;i<4;i++)lighting.set(identity,40+i*16);
+        lighting.set([1,0,0,1/2048],20);lighting[24]=2;device.queue.writeBuffer(lightBuffer,0,lighting);
+        const fillModule=await module(`@vertex fn fill(@builtin(vertex_index) id:u32,@builtin(instance_index) instance:u32)->@builtin(position) vec4f{
+            let p=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3))[id];return vec4f(p,select(0.8,0.2,(instance&1u)!=0u),1);}`);
+        const fillPipeline=await device.createRenderPipelineAsync({layout:'auto',vertex:{module:fillModule,entryPoint:'fill'},depthStencil:{format:'depth32float',depthWriteEnabled:true,depthCompare:'always'}});
+        const probeModule=await module(common+geometry+shLibrary+atmosphereLibrary+cameraLibrary+pbrLibrary+octLibrary+await load('terrain-forward.wgsl')+`
+@vertex fn probeVertex(@builtin(vertex_index) id:u32)->@builtin(position) vec4f{let p=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3))[id];return vec4f(p,0,1);}
+@fragment fn probeFragment(@builtin(position) p:vec4f)->@location(0) vec4f{
+ let cascade=u32(p.x)/64u;let u=select(0.000001,0.999999,p.y>=128.0);let v=select(0.000001,0.999999,(u32(p.y)/64u%2u)!=0u);
+ let position=vec3f(u*2.0-1.0,1.0-v*2.0,0.5);return vec4f(vec3f(sampleShadowCascade(position,vec3f(0,1,0),cascade)),1);}`);
+        const probe=await device.createRenderPipelineAsync({layout:device.createPipelineLayout({bindGroupLayouts:[groupLayout,lightingLayout]}),vertex:{module:probeModule,entryPoint:'probeVertex'},fragment:{module:probeModule,entryPoint:'probeFragment',targets:[{format:'rgba8unorm'}]}});
+        const probeColor=texture({size:[256,256],format:'rgba8unorm',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});
+        const atlasRead=buffer(256*1024,GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ),atlasEncoder=device.createCommandEncoder();
+        const fillPass=atlasEncoder.beginRenderPass({colorAttachments:[],depthStencilAttachment:{view:shadowTexture.createView(),depthClearValue:0,depthLoadOp:'clear',depthStoreOp:'store'}});
+        fillPass.setPipeline(fillPipeline);for(let i=0;i<4;i++){fillPass.setViewport((i%2)*1024,Math.floor(i/2)*1024,1024,1024,0,1);fillPass.setScissorRect((i%2)*1024,Math.floor(i/2)*1024,1024,1024);fillPass.draw(3,1,0,i);}fillPass.end();
+        const probePass=atlasEncoder.beginRenderPass({colorAttachments:[{view:probeColor.createView(),loadOp:'clear',storeOp:'store',clearValue:[0,0,0,1]}]});
+        probePass.setPipeline(probe);probePass.setBindGroup(0,mainGroup);probePass.setBindGroup(1,lightGroup);probePass.draw(3);probePass.end();
+        atlasEncoder.copyTextureToBuffer({texture:probeColor},{buffer:atlasRead,bytesPerRow:1024},[256,256]);device.queue.submit([atlasEncoder.finish()]);
+        await atlasRead.mapAsync(GPUMapMode.READ);const atlasPixels=new Uint8Array(atlasRead.getMappedRange());
+        for(let y=0;y<256;y++)for(let x=0;x<256;x++)if(atlasPixels[(y*256+x)*4]!==((Math.floor(x/64)%2)*255))throw Error('Atlasの隣接カスケードからPCFが漏れています');atlasRead.unmap();
+        const error=await device.popErrorScope();if(error){throw Error(error.message);}
+        output.textContent=`PASS\n全65,536画素でZPrePass/Forward Equalの被覆一致\n稜線の光源側=${lit}、遮蔽側=${shade}（0〜255）\nMain=${mainCount} / Shadow=${shadowCount} / メイン視野外キャスター=${offscreen.length}件\nSkyLightのみ: 受光側=${skyLit} / 遮蔽側=${skyShade} / 強度0で両方0\n固定RGBアルベド白・灰・黒・有彩色の一様天空テスト成功（v02）\nAtlas全4段・四隅の5×5 PCF漏れなし\n実シェーダー・独立カリング・3 Passを使用 / WebGPU validation errorなし`;
+    }catch(error){output.textContent='FAIL: '+error.message;}
+    finally{resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
+};
+</script>

@@ -1,0 +1,77 @@
+<!doctype html>
+<meta charset="utf-8"><title>v02 Octahedral IBL GPU検証</title>
+<style>body{background:#152127;color:#e1e7e7;font:16px monospace;padding:24px}pre{white-space:pre-wrap}</style>
+<button id="run">実行</button><pre id="result">未実行</pre>
+<script type="module">
+const button=document.querySelector('#run'),output=document.querySelector('#result');
+button.onclick=async()=>{
+ let device,environment;const resources=[];button.disabled=true;
+ try{
+  const root='/lab/webgpu/experiments/rendering-sandbox/v02/';
+  const {SpecularEnvironment}=await import(root+'specular-environment.js');
+  device=await(await navigator.gpu.requestAdapter()).requestDevice();device.pushErrorScope('validation');
+  const load=async n=>{const r=await fetch(root+n,{cache:'no-cache'});if(!r.ok)throw Error(n);return r.text();};
+  const module=async code=>{const m=device.createShaderModule({code});const errors=(await m.getCompilationInfo()).messages.filter(e=>e.type==='error');if(errors.length)throw Error(errors.map(e=>e.message).join('\n'));return m;};
+  const [pbr,sampling,oct,filter,lut]=await Promise.all(['pbr.wgsl','ibl-sampling.wgsl','sky-octahedral.wgsl','ibl-prefilter.wgsl','ibl-brdf.wgsl'].map(load));
+  const source=device.createTexture({size:[256,256],format:'rgba16float',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});resources.push(source);
+  const constant=new Uint16Array(256*256*4);for(let i=0;i<constant.length;i+=4)constant.set([0x3c00,0x4000,0x4400,0x3c00],i);
+  device.queue.writeTexture({texture:source},constant,{bytesPerRow:2048},[256,256]);
+  environment=await SpecularEnvironment.create(device,await module(pbr+sampling+oct+filter),await module(pbr+sampling+lut),source.createView());
+  const buffer=(size,usage)=>{const b=device.createBuffer({size,usage});resources.push(b);return b;};
+  const decode=b=>{const sign=b&32768?-1:1,e=(b>>10)&31,m=b&1023;return sign*(e===0?m*2**-24:(1+m/1024)*2**(e-15));};
+  async function snapshot(){
+   const e=device.createCommandEncoder();environment.encode(e,true);
+   const entries=[];
+   for(let mip=0;mip<5;mip++){
+    const size=256>>mip,row=Math.max(256,size*8),read=buffer(row*size,GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ);
+    e.copyTextureToBuffer({texture:environment.map,mipLevel:mip},{buffer:read,bytesPerRow:row},[size,size]);entries.push({size,row,read});
+   }
+   const brdf=buffer(128*1024,GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ);
+   e.copyTextureToBuffer({texture:environment.lut},{buffer:brdf,bytesPerRow:1024},[128,128]);device.queue.submit([e.finish()]);
+   const values=[];for(const entry of entries){await entry.read.mapAsync(GPUMapMode.READ);values.push({...entry,data:new Uint16Array(entry.read.getMappedRange()).slice()});entry.read.unmap();}
+   await brdf.mapAsync(GPUMapMode.READ);const data=new Uint16Array(brdf.getMappedRange()).slice();brdf.unmap();return {values,brdf:data};
+  }
+  const first=await snapshot();
+  for(const {size,row,data}of first.values)for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+   const value=[0,1,2].map(c=>decode(data[y*row/2+x*4+c]));
+   if(value.some((v,c)=>Math.abs(v-[1,2,4][c])>0.01))throw Error('一様天空の保存が不正');
+  }
+  for(let i=0;i<first.brdf.length;i+=4){const a=decode(first.brdf[i]),b=decode(first.brdf[i+1]);if(!Number.isFinite(a+b)||a<0||b<0||a+b>1.05)throw Error('BRDF LUTの値域が不正');}
+  // 別の天空へ置き換えた直後に全Mipへ反映される。未露出HDRも保持する。
+  for(let i=0;i<constant.length;i+=4)constant.set([0x4000,0x4400,0x4800,0x3c00],i);
+  device.queue.writeTexture({texture:source},constant,{bytesPerRow:2048},[256,256]);
+  const second=await snapshot();for(const {data}of second.values)if(Math.abs(decode(data[2])-8)>0.02)throw Error('天空更新が反映されません');
+  // 非一様天空をGPUで生成し、ボーダーとトリリニア参照の継ぎ目を確認する。
+  const sourceWrite=device.createTexture({size:[256,256],format:'rgba16float',usage:GPUTextureUsage.STORAGE_BINDING|GPUTextureUsage.TEXTURE_BINDING});resources.push(sourceWrite);
+  const fillModule=await module(oct+`@group(0) @binding(0) var dst:texture_storage_2d<rgba16float,write>;
+@compute @workgroup_size(8,8) fn fill(@builtin(global_invocation_id) id:vec3u){let d=octahedralDirection((vec2f(id.xy)+0.5)/256.0);textureStore(dst,vec2i(id.xy),vec4f(vec3f(1,2,4)+d*0.5,1));}`);
+  const fill=await device.createComputePipelineAsync({layout:'auto',compute:{module:fillModule,entryPoint:'fill'}});
+  const fillGroup=device.createBindGroup({layout:fill.getBindGroupLayout(0),entries:[{binding:0,resource:sourceWrite.createView()}]});
+  const encoder=device.createCommandEncoder(),pass=encoder.beginComputePass();pass.setPipeline(fill);pass.setBindGroup(0,fillGroup);pass.dispatchWorkgroups(32,32);pass.end();device.queue.submit([encoder.finish()]);
+  environment.dispose();environment=await SpecularEnvironment.create(device,await module(pbr+sampling+oct+filter),await module(pbr+sampling+lut),sourceWrite.createView());
+  const directional=await snapshot();
+  for(const {size,row,data}of directional.values){
+   const border=size/16,inside=size-2*border;
+   for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+    if(x>=border&&x<size-border&&y>=border&&y<size-border)continue;
+    let a=x-border,b=y-border;
+    if(a<0){a=-a-1;b=inside-1-b;}else if(a>=inside){a=2*inside-1-a;b=inside-1-b;}
+    if(b<0){b=-b-1;a=inside-1-a;}else if(b>=inside){b=2*inside-1-b;a=inside-1-a;}
+    for(let c=0;c<3;c++)if(data[y*row/2+x*4+c]!==data[(b+border)*row/2+(a+border)*4+c])throw Error('Mipボーダーの折返しが不正');
+   }
+  }
+  const read=buffer(9*2*5*16,GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ),results=buffer(9*2*5*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC);
+  const seamModule=await module(oct+`@group(0) @binding(0) var env:texture_2d<f32>;
+@group(0) @binding(1) var mipSampler:sampler;@group(0) @binding(2) var<storage,read_write> values:array<vec4f>;
+@compute @workgroup_size(1) fn seam(@builtin(global_invocation_id) id:vec3u){let side=select(-0.00001,0.00001,id.y==1u);var direction=vec3f(0.6,side,-0.8);if(id.z==1u){direction=vec3f(-0.6,side,-0.8);}if(id.z==2u){direction=vec3f(side,0.6,-0.8);}if(id.z==3u){direction=vec3f(side,-0.6,-0.8);}if(id.z==4u){direction=vec3f(side,side,-1.0);}direction=normalize(direction);values[(id.z*9u+id.x)*2u+id.y]=vec4f(sampleOctRoughness(env,mipSampler,direction,f32(id.x)/8.0),1);}`);
+  const seam=await device.createComputePipelineAsync({layout:'auto',compute:{module:seamModule,entryPoint:'seam'}});
+  const group=device.createBindGroup({layout:seam.getBindGroupLayout(0),entries:[{binding:0,resource:environment.map.createView()},{binding:1,resource:environment.sampler},{binding:2,resource:{buffer:results}}]});
+  const e=device.createCommandEncoder(),p=e.beginComputePass();p.setPipeline(seam);p.setBindGroup(0,group);p.dispatchWorkgroups(9,2,5);p.end();e.copyBufferToBuffer(results,0,read,0,read.size);device.queue.submit([e.finish()]);
+  await read.mapAsync(GPUMapMode.READ);const seamData=new Float32Array(read.getMappedRange());let maxSeam=0;
+  for(let i=0;i<45;i++)for(let c=0;c<3;c++)maxSeam=Math.max(maxSeam,Math.abs(seamData[i*8+c]-seamData[i*8+4+c]));read.unmap();
+  if(maxSeam>0.01)throw Error('Octahedralの継ぎ目が不連続: '+maxSeam);
+  const error=await device.popErrorScope();if(error)throw Error(error.message);
+  output.textContent='PASS\n全5Mipで一様HDR天空を保存・更新\nBRDF LUT有限・非負・エネルギー値域\n全Mipのボーダーが隣接面の内部値と完全一致\nハードウェア・トリリニア1参照の継ぎ目差='+maxSeam+'\nWebGPU validation errorなし';
+ }catch(error){output.textContent='FAIL: '+error.message;}finally{environment?.dispose();resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
+};
+</script>
