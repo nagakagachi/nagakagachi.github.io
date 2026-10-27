@@ -2,7 +2,6 @@
 <label class="check"><input id="gpu-culling" type="checkbox" checked> フラスタムカリング</label>
 <label class="check"><input id="gpu-freeze" type="checkbox"> カリング・配置を固定</label>
 <label class="check"><input id="gpu-aerial" type="checkbox" checked> 大気遠近法</label>
-<label class="parameter"><span>移動速度</span><input id="gpu-speed" type="range" min="10" max="600" step="10" value="150"><output id="gpu-speed-value">150 m/s</output></label>
 </details>
 <details class="sandbox-panel"><summary>地形</summary>
 <label class="parameter"><span>シード</span><input id="gpu-seed" type="number" min="0" max="4294967295" step="1" value="12343725"></label>
@@ -22,13 +21,16 @@
 <label class="parameter"><span>法線バイアス</span><input id="gpu-normal-bias" type="range" min="0" max="10" step="0.1" value="1"><output id="gpu-normal-bias-value">1 m</output></label>
 <label class="parameter"><span>PCF</span><select id="gpu-pcf"><option value="0">1 tap</option><option value="1" selected>3×3</option><option value="2">5×5</option></select></label>
 </details>
-<details class="sandbox-panel"><summary>ポストプロセス</summary>
-<label class="parameter"><span>露出</span><input id="gpu-exposure" type="range" min="0.1" max="4" step="0.1" value="1"><output id="gpu-exposure-value">1</output></label>
+<details class="sandbox-panel"><summary>カメラ</summary>
+<label class="parameter"><span>移動速度</span><input id="gpu-speed" type="range" min="10" max="600" step="10" value="150"><output id="gpu-speed-value">150 m/s</output></label>
+<label class="parameter"><span>垂直画角</span><input id="gpu-fov" type="range" min="30" max="110" step="1" value="60"><output id="gpu-fov-value">60°</output></label>
+<label class="parameter"><span>露出倍率</span><input id="gpu-exposure" type="range" min="0.1" max="4" step="0.1" value="1"><output id="gpu-exposure-value">1</output></label>
 </details>
 <details class="sandbox-panel"><summary>SkyLight</summary>
 <label class="parameter"><span>SkyLight強度</span><input id="gpu-sky-intensity" type="range" min="0" max="2" step="0.05" value="1"><output id="gpu-sky-intensity-value">1</output></label>
 </details>
 <details class="sandbox-panel"><summary>診断</summary>
+<label class="check"><input id="gpu-sky-map" type="checkbox"> Sky Octahedral Map</label>
 <label class="check"><input id="gpu-normals" type="checkbox"> 法線表示</label>
 <label class="check"><input id="gpu-wireframe" type="checkbox"> ワイヤーフレーム</label>
 <label class="check"><input id="gpu-tile-colors" type="checkbox"> タイル色分け</label>

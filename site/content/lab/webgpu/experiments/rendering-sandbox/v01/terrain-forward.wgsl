@@ -18,6 +18,7 @@ struct Lighting {
 @group(1) @binding(1) var shadowMap: texture_depth_2d;
 @group(1) @binding(2) var shadowSampler: sampler_comparison;
 @group(1) @binding(3) var<uniform> skySH: SkySH;
+@group(1) @binding(4) var<uniform> cameraFrame: CameraFrame;
 
 @vertex
 fn vertexMain(@builtin(vertex_index) id: u32, @builtin(instance_index) instance: u32) -> VertexOutput {
@@ -73,11 +74,11 @@ fn shadowVisibility(position: vec3f, normal: vec3f) -> f32 {
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     let n = normalize(input.normal);
-    if (scene.elevation.z != 0.0) { return vec4f(n * 0.5 + 0.5, 1.0); }
+    if (scene.elevation.z != 0.0) { return vec4f(preExposeRadiance(n * 0.5 + 0.5, cameraFrame), 1.0); }
     let visibility = shadowVisibility(input.worldPosition, n);
-    if (lighting.shadowFilter.y != 0.0) { return vec4f(vec3f(visibility), 1.0); }
+    if (lighting.shadowFilter.y != 0.0) { return vec4f(preExposeRadiance(vec3f(visibility), cameraFrame), 1.0); }
     let t = clamp((input.height - scene.elevation.x) * scene.elevation.y, 0.0, 1.0);
-    if (scene.elevation.w != 0.0) { return vec4f(tileColor(input.tileID), 1.0); }
+    if (scene.elevation.w != 0.0) { return vec4f(preExposeRadiance(tileColor(input.tileID), cameraFrame), 1.0); }
     // アルベドはリニア反射率。表示用sRGB値として扱わない。
     let albedo = vec3f(mix(0.16, 0.94, t));
     // 直射光のLambert反射。Shadow Mapの可視率はこの直射光だけへ適用する。
@@ -98,10 +99,10 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
             linearHdr = linearHdr * aerial.transmittance + aerial.scattering;
         }
     }
-    // Forwardの出力はシーンリニアHDR。表示変換は後続のPostProcessPassだけが行う。
-    return vec4f(linearHdr, 1.0);
+    // Forwardの出力はPreExposure済みの線形HDR。トーンマッピングは後続Passで行う。
+    return vec4f(preExposeRadiance(linearHdr, cameraFrame), 1.0);
 }
 @fragment
 fn wireMain() -> @location(0) vec4f {
-    return vec4f(0.04, 0.055, 0.065, 1.0);
+    return vec4f(preExposeRadiance(vec3f(0.04, 0.055, 0.065), cameraFrame), 1.0);
 }

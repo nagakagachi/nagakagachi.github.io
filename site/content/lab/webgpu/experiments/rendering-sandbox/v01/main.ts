@@ -1,3 +1,5 @@
+import { cameraFrame } from './camera-frame.js';
+import { SkyDebug } from './sky-debug.js';
 import { PostProcess } from './post-process.js';
 import { SkyEnvironment } from './sky-environment.js';
 import { lightDirection, shadowMatrix, frustumPlanes, SHADOW_RESOLUTION } from './render-math.js';
@@ -46,6 +48,8 @@ const amplitudeValue = element('#gpu-amplitude-value', HTMLOutputElement);
 const scaleValue = element('#gpu-scale-value', HTMLOutputElement);
 const shadows = element('#gpu-shadows', HTMLInputElement);
 const exposure = element('#gpu-exposure', HTMLInputElement);
+const verticalFov = element('#gpu-fov', HTMLInputElement);
+const showSkyMap = element('#gpu-sky-map', HTMLInputElement);
 const aerial = element('#gpu-aerial', HTMLInputElement);
 const skyIntensity = element('#gpu-sky-intensity', HTMLInputElement);
 const shadowMask = element('#gpu-shadow-mask', HTMLInputElement);
@@ -85,11 +89,11 @@ const pointers = new Map<number, {
 function normalize(v: Vec3): Vec3 { const length = Math.hypot(...v); return [v[0] / length, v[1] / length, v[2] / length]; }
 function cross(a: Vec3, b: Vec3): Vec3 { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
 function dot(a: Vec3, b: Vec3): number { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-function viewProjection(): Float32Array<ArrayBuffer> {
+function viewProjection(fov: number): Float32Array<ArrayBuffer> {
     const z: Vec3 = [Math.sin(camera.yaw) * Math.cos(camera.pitch), Math.sin(camera.pitch), Math.cos(camera.yaw) * Math.cos(camera.pitch)];
     const x = normalize(cross([0, 1, 0], z)), y = cross(z, x);
     const eye = camera.position;
-    const f = 1 / Math.tan(Math.PI / 6), sx = f / (canvas.width / canvas.height);
+    const f = 1 / Math.tan(fov / 2), sx = f / (canvas.width / canvas.height);
     // 右手系のビュー。NDCのZ=near/距離とし、near=1、far=無限遠のReversed Zを使う。
     return new Float32Array([x[0] * sx, y[0] * f, 0, -z[0], x[1] * sx, y[1] * f, 0, -z[1],
         x[2] * sx, y[2] * f, 0, -z[2], -dot(x, eye) * sx, -dot(y, eye) * f, 1, dot(z, eye)]);
@@ -257,7 +261,6 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
     let context: GPUCanvasContext | null = null;
     let depth: GPUTexture | undefined;
     let hdrColor: GPUTexture | undefined;
-    let postProcess: PostProcess | undefined;
     let shadowDepth: GPUTexture | undefined;
     let cache: HeightClipmap | undefined;
     let skyEnvironment: SkyEnvironment | undefined;
@@ -278,7 +281,6 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
         buffers.forEach(buffer => buffer.destroy());
         depth?.destroy();
         hdrColor?.destroy();
-        postProcess?.dispose();
         shadowDepth?.destroy();
         device.destroy();
     }
@@ -316,16 +318,18 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
             }
             return module;
         }
+        const cameraLibrary = utf8(await bytes('camera.wgsl', signal), 'camera.wgsl');
         const geometryLibrary = utf8(await bytes('terrain-geometry.wgsl', signal), 'terrain-geometry.wgsl');
         const atmosphereLibrary = utf8(await bytes('atmosphere.wgsl', signal), 'atmosphere.wgsl');
         const skyLibrary = atmosphereLibrary + utf8(await bytes('sky-common.wgsl', signal), 'sky-common.wgsl');
         const octahedralLibrary = utf8(await bytes('sky-octahedral.wgsl', signal), 'sky-octahedral.wgsl');
         const shLibrary = utf8(await bytes('sky-sh.wgsl', signal), 'sky-sh.wgsl');
-        const renderShader = await shader('terrain-forward.wgsl', geometryLibrary + shLibrary + atmosphereLibrary);
+        const renderShader = await shader('terrain-forward.wgsl', geometryLibrary + shLibrary + atmosphereLibrary + cameraLibrary);
         const skyGenerate = await shader('sky-generate.wgsl', skyLibrary + octahedralLibrary, '', false);
         const skyProject = await shader('sky-project.wgsl', octahedralLibrary + shLibrary, '', false);
         const skyReduce = await shader('sky-reduce.wgsl', shLibrary, '', false);
-        const skyRender = await shader('sky-render.wgsl', skyLibrary, '', false);
+        const skyRender = await shader('sky-render.wgsl', skyLibrary + cameraLibrary, '', false);
+        const skyDebugShader = await shader('sky-debug.wgsl', cameraLibrary, '', false);
         const postShader = await shader('post-process.wgsl', '', '', false);
         const depthShader = await shader('terrain-zonly.wgsl', geometryLibrary);
         const heightShader = await shader('generate-height.wgsl', '', '', false);
@@ -396,8 +400,11 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
                 { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
                 { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }
             ] });
-        const environment = await SkyEnvironment.create(device, { generate: skyGenerate, project: skyProject, reduce: skyReduce, render: skyRender }, 'rgba16float');
+        const cameraBuffer = buffer(16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+        const environment = await SkyEnvironment.create(device, { generate: skyGenerate, project: skyProject, reduce: skyReduce, render: skyRender }, 'rgba16float', cameraBuffer);
         skyEnvironment = environment;
+        check();
+        const skyDebug = await SkyDebug.create(device, skyDebugShader, environment.map.createView(), cameraBuffer);
         check();
         const lightingBuffer = buffer(160, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
         shadowDepth = device.createTexture({ label: 'Directional Shadow Map', size: [SHADOW_RESOLUTION, SHADOW_RESOLUTION],
@@ -407,13 +414,15 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
             { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
             { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth' } },
             { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'comparison' } },
-            { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }
+            { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+            { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }
         ] });
         const lightingGroup = device.createBindGroup({ layout: lightingLayout, entries: [
             { binding: 0, resource: { buffer: lightingBuffer } },
             { binding: 1, resource: shadowDepthView },
             { binding: 2, resource: device.createSampler({ compare: 'greater-equal', minFilter: 'linear', magFilter: 'linear' }) },
-            { binding: 3, resource: { buffer: environment.coefficients } }
+            { binding: 3, resource: { buffer: environment.coefficients } },
+            { binding: 4, resource: { buffer: cameraBuffer } }
         ] });
         const pipelines = await createOpaquePipelines(device, groupLayout, lightingLayout, depthShader, renderShader, 'rgba16float');
         check();
@@ -452,7 +461,6 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
             format: 'rgba16float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
         const hdrView = hdrColor.createView();
         const display = await PostProcess.create(device, postShader, hdrView, format);
-        postProcess = display;
         check();
         // 将来のモデルも同じOpaqueRenderable契約へ追加する。位置用・色用のシェーダーを分ける。
         const terrain: OpaqueRenderable = {
@@ -471,6 +479,7 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
             },
             drawDebug(pass) {
                 pass.setPipeline(pipelines.wire);
+                pass.setBindGroup(1, lightingGroup);
                 pass.setBindGroup(0, mainGroup);
                 pass.setIndexBuffer(wireIndices, 'uint16');
                 pass.drawIndexedIndirect(wireIndirect, 0);
@@ -479,6 +488,7 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
         const renderables: readonly OpaqueRenderable[] = [terrain];
         let lightMatrix = new Float32Array(16);
         let light = lightDirection(Number(azimuth.value), Number(elevation.value));
+        let previousPreExposure = 1;
         let updates = 0;
         let pending = false;
         const { activity, configuration } = metricGroups();
@@ -489,7 +499,7 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
         detail(configuration, '共有タイル', `${grid.vertexCount.toLocaleString()}頂点ID / ${(grid.surface.length / 3).toLocaleString()}三角形 / VB 0 B`);
         detail(configuration, 'HDRカラー', `rgba16float / ${canvas.width}×${canvas.height} / ${(canvas.width * canvas.height * 8 / 1048576).toFixed(2)} MiB / PostProcessPassで表示変換`);
         detail(configuration, 'タイル共有IB', `uint16 / タイル描画 ${indices.size.toLocaleString()} B + ワイヤーフレーム ${wireIndices.size.toLocaleString()} B`);
-        detail(configuration, 'GPU描画データ', '可視タイル 6,400 B×2 / Indirect 20 B×3 / Scene 480 B×2 / Lighting 160 B / 表示読戻し40 B');
+        detail(configuration, 'GPU描画データ', '可視タイル 6,400 B×2 / Indirect 20 B×3 / Scene 480 B×2 / Lighting 160 B / Camera 16 B / 表示読戻し40 B');
         detail(configuration, '天球リソース', 'Octahedral 256² rgba16float 512 KiB / SH局所和144 KiB / 9係数144 B / 生成・表示Uniform計80 B');
         detail(configuration, '描画Pass', 'ZPrePass → ShadowPass → ForwardShadingPass（HDR・Equal）→ PostProcessPass（ACES Filmic・sRGB）');
         const shadowInfo = detail(configuration, 'Shadow Map', '');
@@ -504,7 +514,9 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
             if (disposed) {
                 return;
             }
-            const matrix = viewProjection();
+            const frameCamera = cameraFrame(Number(exposure.value), Number(verticalFov.value), previousPreExposure);
+            device.queue.writeBuffer(cameraBuffer, 0, frameCamera.uniform);
+            const matrix = viewProjection(frameCamera.verticalFov);
             const live = !freeze.checked || updates === 0;
             const encoder = device.createCommandEncoder({ label: 'RenderingSandbox Frame' });
             if (live) {
@@ -521,7 +533,7 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
                 mainView.settings.set(frustumPlanes(matrix), 16);
                 shadowView.settings.set(frustumPlanes(lightMatrix), 16);
             }
-            const skyChanged = environment.encode(encoder, light, camera.yaw, camera.pitch, canvas.width / canvas.height, Math.max(camera.position[1] + ATMOSPHERE_REFERENCE_ALTITUDE, 2));
+            const skyChanged = environment.encode(encoder, light, camera.yaw, camera.pitch, canvas.width / canvas.height, Math.max(camera.position[1] + ATMOSPHERE_REFERENCE_ALTITUDE, 2), frameCamera.verticalFov);
             updateDetail(skyUpdateInfo, `#${environment.revision} / ${skyChanged ? 'Octahedral生成・SH投影' : '保持（方位・水平移動・露出の変更では再投影なし）'}`);
             const activeCache = cache;
             if (!activeCache) {
@@ -575,7 +587,8 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
             }
             encodeOpaquePasses(encoder, hdrView, depthView, shadowDepthView,
                 renderables, shadows.checked, wireframe.checked, environment);
-            display.encode(encoder, activeContext.getCurrentTexture().createView(), Number(exposure.value));
+            if (showSkyMap.checked) { skyDebug.encode(encoder, hdrView, canvas.width, canvas.height); }
+            display.encode(encoder, activeContext.getCurrentTexture().createView());
             // 状態表示だけを非同期に読む。標高・可視数のCPU取得を待って描画する経路はない。
             const read = !pending;
             const revision = updates;
@@ -586,6 +599,7 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
                 encoder.copyBufferToBuffer(shadowView.indirect, 0, readback, 20, 20);
             }
             device.queue.submit([encoder.finish()]);
+            previousPreExposure = frameCamera.preExposure;
             if (read) {
                 void readback.mapAsync(GPUMapMode.READ).then(() => {
                     const values = new Uint32Array(readback.getMappedRange());
@@ -665,7 +679,7 @@ start.addEventListener('click', async () => {
     }
 });
 resetCamera.addEventListener('click', () => { clearInput(); camera = defaultCamera(); scheduleDraw(); });
-for (const control of [wireframe, snapGrid, showNormals, tileColors, culling, density, radius, compaction, shadows, shadowMask, azimuth, elevation, shadowWidth, depthBias, normalBias, pcf, aerial]) {
+for (const control of [wireframe, snapGrid, showNormals, tileColors, culling, density, radius, compaction, shadows, shadowMask, azimuth, elevation, shadowWidth, depthBias, normalBias, pcf, aerial, showSkyMap]) {
     control.addEventListener('change', scheduleDraw);
 }
 freeze.addEventListener('change', () => { layoutControls.forEach(c => { c.disabled = freeze.checked; }); scheduleDraw(); });
@@ -760,7 +774,8 @@ const lightReadouts: Array<[HTMLInputElement, HTMLOutputElement, string]> = [[az
     [depthBias, element('#gpu-depth-bias-value', HTMLOutputElement), ''],
     [normalBias, element('#gpu-normal-bias-value', HTMLOutputElement), ' m'],
     [skyIntensity, element('#gpu-sky-intensity-value', HTMLOutputElement), ''],
-    [exposure, element('#gpu-exposure-value', HTMLOutputElement), '']];
+    [exposure, element('#gpu-exposure-value', HTMLOutputElement), ''],
+    [verticalFov, element('#gpu-fov-value', HTMLOutputElement), '°']];
 for (const [input, output, unit] of lightReadouts) {
     input.addEventListener('input', () => { output.value = input.value + unit; scheduleDraw(); });
 }

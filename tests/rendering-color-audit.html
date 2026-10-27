@@ -20,6 +20,9 @@ button.onclick=async()=>{
   const texture=d=>{const t=device.createTexture(d);resources.push(t);return t;};
   const buffer=(size,usage)=>{const b=device.createBuffer({size,usage});resources.push(b);return b;};
   const code=await load('post-process.wgsl');
+  const cameraLibrary=await load('camera.wgsl');
+  const cameraBuffer=buffer(16,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+  device.queue.writeBuffer(cameraBuffer,0,new Float32Array([1,1,1,1]));
   const manualModule=await module(code),autoModule=await module(code.replace('linearToSrgb(mapped)','mapped'));
   const hdr=texture({size:[6,1],format:'rgba16float',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.TEXTURE_BINDING});
   const source=await module(`
@@ -43,7 +46,7 @@ button.onclick=async()=>{
   const pass=encoder.beginRenderPass({colorAttachments:[{view:hdr.createView(),loadOp:'clear',storeOp:'store',clearValue:[0,0,0,1]}]});
   pass.setPipeline(pipeline);pass.draw(3);pass.end();
   contexts.forEach((ctx,i)=>{
-   const target=ctx.getCurrentTexture();posts[i].encode(encoder,target.createView(i?{format:srgbFormat}:{}),1);
+   const target=ctx.getCurrentTexture();posts[i].encode(encoder,target.createView(i?{format:srgbFormat}:{}));
    encoder.copyTextureToBuffer({texture:target},{buffer:read,offset:256*i,bytesPerRow:256},[6,1]);
   });
   // Canvasの表示用テクスチャが次フレームで失効する前に、同じタスクで2Dへ複写する。
@@ -60,7 +63,7 @@ button.onclick=async()=>{
   const log=[`Canvas=${format}, colorSpace=${contexts[0].getConfiguration().colorSpace}`,
    `手動sRGB=${manual.join('/')} / 自動sRGB=${automatic.join('/')}`,'Canvas→2D読み戻し一致：二重ガンマなし PASS'];
   const [atmo,common,oct,sh,gen,project,reduce,render]=await Promise.all(['atmosphere.wgsl','sky-common.wgsl','sky-octahedral.wgsl','sky-sh.wgsl','sky-generate.wgsl','sky-project.wgsl','sky-reduce.wgsl','sky-render.wgsl'].map(load));
-  environment=await SkyEnvironment.create(device,{generate:await module(atmo+common+oct+gen),project:await module(oct+sh+project),reduce:await module(sh+reduce),render:await module(atmo+common+render)},'rgba16float');
+  environment=await SkyEnvironment.create(device,{generate:await module(atmo+common+oct+gen),project:await module(oct+sh+project),reduce:await module(sh+reduce),render:await module(atmo+common+cameraLibrary+render)},'rgba16float',cameraBuffer);
   const skyRead=buffer(524288+144,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
   const e=device.createCommandEncoder();
   const sun=[0.75,0.5,Math.sqrt(3)/4];
@@ -81,8 +84,8 @@ button.onclick=async()=>{
    0.5462742153*(d[0]*d[0]-d[2]*d[2])];
   const projected=Array.from({length:9},()=>[0,0,0]);
   for(let y=0;y<256;y++)for(let x=0;x<256;x++){
-   let vx=(x+0.5)/128-1,vz=(y+0.5)/128-1,vy=1-Math.abs(vx)-Math.abs(vz);
-   if(vy<0){const oldX=vx;vx=(1-Math.abs(vz))*(vx>=0?1:-1);vz=(1-Math.abs(oldX))*(vz>=0?1:-1);}
+   let vx=(x+0.5)/128-1,vy=(y+0.5)/128-1,vz=1-Math.abs(vx)-Math.abs(vy);
+   if(vz<0){const oldX=vx;vx=(1-Math.abs(vy))*(vx>=0?1:-1);vy=(1-Math.abs(oldX))*(vy>=0?1:-1);}
    const len=Math.hypot(vx,vy,vz),weight=1/len**3,d=[vx/len,vy/len,vz/len];weights+=weight;
    const radiance=[0,1,2].map(c=>decode(half[(y*256+x)*4+c]));
    basis9(d).forEach((b,j)=>{for(let c=0;c<3;c++)projected[j][c]+=radiance[c]*weight*b;});
@@ -108,6 +111,6 @@ button.onclick=async()=>{
   const error=await device.popErrorScope();if(error)throw Error(error.message);
   output.textContent='PASS\n'+log.join('\n')+'\nWebGPU validation errorなし';
  }catch(e){output.textContent='FAIL: '+e.message;}
- finally{environment?.dispose();posts.forEach(p=>p.dispose());contexts.forEach(c=>c.unconfigure());resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
+ finally{environment?.dispose();contexts.forEach(c=>c.unconfigure());resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
 };
 </script>

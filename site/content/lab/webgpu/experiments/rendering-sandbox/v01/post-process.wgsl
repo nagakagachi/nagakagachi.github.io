@@ -1,11 +1,4 @@
-struct PostParameters {
-    exposure: f32,
-    reserved0: f32,
-    reserved1: f32,
-    reserved2: f32,
-}
 @group(0) @binding(0) var sceneHdr: texture_2d<f32>;
-@group(0) @binding(1) var<uniform> post: PostParameters;
 
 @vertex
 fn postVertex(@builtin(vertex_index) id: u32) -> @builtin(position) vec4f {
@@ -29,9 +22,8 @@ fn acesFilmic(linearHdr: vec3f) -> vec3f {
 
 @fragment
 fn postFragment(@builtin(position) pixel: vec4f) -> @location(0) vec4f {
-    let linearHdr = textureLoad(sceneHdr, vec2i(pixel.xy), 0).rgb;
-    let exposed = max(linearHdr * post.exposure, vec3f(0.0));
-    // 露出、ACES Filmic Tonemapping、sRGB変換はこの最終Passに限定する。
-    let mapped = acesFilmic(exposed);
+    let preExposedHdr = max(textureLoad(sceneHdr, vec2i(pixel.xy), 0).rgb, vec3f(0.0));
+    // HDRはすでにカメラのPreExposureが適用済み。ここでは再適用しない。
+    let mapped = acesFilmic(preExposedHdr);
     return vec4f(linearToSrgb(mapped), 1.0);
 }

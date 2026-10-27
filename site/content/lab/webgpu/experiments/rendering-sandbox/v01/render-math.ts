@@ -49,9 +49,9 @@ export function frustumPlanes(matrix: Float32Array): Float32Array<ArrayBuffer> {
 }
 
 // メインカメラと同じ右・上・前方向をピクセルレイへ渡す。平行移動は空に影響しない。
-export function skyRayFrame(yaw: number, pitch: number, aspect: number): Float32Array<ArrayBuffer> {
+export function skyRayFrame(yaw: number, pitch: number, aspect: number, verticalFov = Math.PI / 3): Float32Array<ArrayBuffer> {
     const sy = Math.sin(yaw), cy = Math.cos(yaw), sp = Math.sin(pitch), cp = Math.cos(pitch);
-    const tangent = Math.tan(Math.PI / 6);
+    const tangent = Math.tan(verticalFov / 2);
     return new Float32Array([
         -sy * cp, -sp, -cy * cp, 0,
         cy * tangent * aspect, 0, -sy * tangent * aspect, 0,

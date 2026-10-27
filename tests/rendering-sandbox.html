@@ -31,6 +31,7 @@ button.onclick = async () => {
         const common = await load('tile-common.wgsl'), geometry = await load('terrain-geometry.wgsl');
         const shLibrary = await load('sky-sh.wgsl');
         const atmosphereLibrary = version === 'v01' ? await load('atmosphere.wgsl') : '';
+        const cameraLibrary = version === 'v01' ? await load('camera.wgsl') : '';
         const module = async code => {
             const shader = device.createShaderModule({ code });
             const errors = (await shader.getCompilationInfo()).messages.filter(m => m.type === 'error');
@@ -38,7 +39,7 @@ button.onclick = async () => {
             return shader;
         };
         const zOnly = await module(common + geometry + await load('terrain-zonly.wgsl'));
-        const forward = await module(common + geometry + shLibrary + atmosphereLibrary + await load('terrain-forward.wgsl'));
+        const forward = await module(common + geometry + shLibrary + atmosphereLibrary + cameraLibrary + await load('terrain-forward.wgsl'));
         const cull = await module(common + await load('cull.wgsl') + await load('compact-workgroup.wgsl'));
         const buffer = (size, usage, data) => {
             const result = device.createBuffer({ size, usage: usage | GPUBufferUsage.COPY_DST });
@@ -91,18 +92,21 @@ button.onclick = async () => {
         lighting.set([1,0.001,0,1/1024],20);lighting.set([0,1,0.16,0],24);
         if(version === 'v01'){lighting.set([0,0,0,1],32);lighting.set([0,2000,0,0],36);}
         const lightBuffer=buffer(lighting.byteLength,GPUBufferUsage.UNIFORM,lighting);
+        const cameraBuffer=buffer(16,GPUBufferUsage.UNIFORM,new Float32Array([1,1,1,1]));
         const shData=new Float32Array(hdr?36:16);
         const shBuffer=buffer(shData.byteLength,GPUBufferUsage.UNIFORM,shData);
         const lightingLayout=device.createBindGroupLayout({entries:[
             {binding:0,visibility:GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}},
             {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'depth'}},
             {binding:2,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'comparison'}},
-            {binding:3,visibility:GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}}
+            {binding:3,visibility:GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}},
+            ...(hdr?[{binding:4,visibility:GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}}]:[])
         ]});
         const lightGroup=device.createBindGroup({layout:lightingLayout,entries:[
             {binding:0,resource:{buffer:lightBuffer}},{binding:1,resource:shadowTexture.createView()},
             {binding:2,resource:device.createSampler({compare:'greater-equal',minFilter:'linear',magFilter:'linear'})},
-            {binding:3,resource:{buffer:shBuffer}}
+            {binding:3,resource:{buffer:shBuffer}},
+            ...(hdr?[{binding:4,resource:{buffer:cameraBuffer}}]:[])
         ]});
         const pipelines=await createOpaquePipelines(device,groupLayout,lightingLayout,zOnly,forward,colorFormat);
         const cullPipeline=await device.createComputePipelineAsync({layout:'auto',compute:{module:cull,entryPoint:'cullMain'}});
@@ -154,6 +158,10 @@ button.onclick = async () => {
             device.queue.writeBuffer(shBuffer,0,shData);
             const bright=await render(true);
             if(Math.abs(pixel(bright,15,0)/255-4)>0.01)throw Error('Forward出力が線形HDRの4.0を保持していません');
+            device.queue.writeBuffer(cameraBuffer,0,new Float32Array([0.5,2,1,0.5]));
+            const preExposed=await render(true);
+            if(Math.abs(pixel(preExposed,15,0)/255-2)>0.01)throw Error('Forward出力にPreExposureが適用されていません');
+            device.queue.writeBuffer(cameraBuffer,0,new Float32Array([1,1,0.5,2]));
         }
         lighting[31]=0;
         const skyOff=await render(true);

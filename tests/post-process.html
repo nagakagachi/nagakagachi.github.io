@@ -19,20 +19,26 @@ button.onclick=async()=>{
   const color=texture({size:[2,1],format:'rgba8unorm',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});
   const read=device.createBuffer({size:256,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});resources.push(read);
   post=await PostProcess.create(device,module,hdr.createView(),'rgba8unorm');
-  const source=device.createShaderModule({code:`
+  const cameraLibrary=await (await fetch(root+'camera.wgsl')).text();
+  const cameraBuffer=device.createBuffer({size:16,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});resources.push(cameraBuffer);
+  const source=device.createShaderModule({code:cameraLibrary+`
+@group(0) @binding(0) var<uniform> frame:CameraFrame;
 @vertex fn vs(@builtin(vertex_index) id:u32)->@builtin(position) vec4f{
  let xy=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));return vec4f(xy[id],0,1);
 }
 @fragment fn fs(@builtin(position) p:vec4f)->@location(0) vec4f{
- return select(vec4f(0.001,0.18,1.0,1.0),vec4f(4.0,16.0,64.0,1.0),p.x>1.0);
+ let radiance=select(vec3f(0.001,0.18,1.0),vec3f(4.0,16.0,64.0),p.x>1.0);
+ return vec4f(preExposeRadiance(radiance,frame),1);
 }`});
   const pipeline=await device.createRenderPipelineAsync({layout:'auto',vertex:{module:source,entryPoint:'vs'},fragment:{module:source,entryPoint:'fs',targets:[{format:'rgba16float'}]}});
+  const group=device.createBindGroup({layout:pipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:cameraBuffer}}]});
   const encode=(v,e)=>{const h=v*e;const x=Math.min(1,Math.max(0,h*(2.51*h+0.03)/(h*(2.43*h+0.59)+0.14)));return Math.round(255*(x<=0.0031308?12.92*x:1.055*x**(1/2.4)-0.055));};
   for(const exposure of [1,0.5]){
+   device.queue.writeBuffer(cameraBuffer,0,new Float32Array([exposure,1/exposure,1,exposure]));
    const encoder=device.createCommandEncoder();
    const pass=encoder.beginRenderPass({colorAttachments:[{view:hdr.createView(),loadOp:'clear',storeOp:'store',clearValue:[0,0,0,1]}]});
-   pass.setPipeline(pipeline);pass.draw(3);pass.end();
-   post.encode(encoder,color.createView(),exposure);
+   pass.setPipeline(pipeline);pass.setBindGroup(0,group);pass.draw(3);pass.end();
+   post.encode(encoder,color.createView());
    encoder.copyTextureToBuffer({texture:color},{buffer:read,bytesPerRow:256},[2,1]);device.queue.submit([encoder.finish()]);
    await read.mapAsync(GPUMapMode.READ);const pixels=new Uint8Array(read.getMappedRange()).slice();read.unmap();
    const values=[0.001,0.18,1,4,16,64];
@@ -40,8 +46,8 @@ button.onclick=async()=>{
    if(!(pixels[2]<pixels[4]&&pixels[4]<=pixels[5]&&pixels[5]<=pixels[6]))throw Error('HDRの1と4の表示差または単調性が不正です');
   }
   const error=await device.popErrorScope();if(error)throw Error(error.message);
-  output.textContent='PASS\nrgba16floatの0.001/0.18/1/4/16/64を別Passで表示\n露出1・0.5でACES Filmic→sRGBの期待値と一致\n1超のHDR値をTonemapping前に保持\nWebGPU validation errorなし';
+  output.textContent='PASS\nrgba16floatの0.001/0.18/1/4/16/64を別Passで表示\nPreExposure1・0.5を描画時に適用してACES Filmic→sRGBの期待値と一致\n1超のHDR値をTonemapping前に保持\nWebGPU validation errorなし';
  }catch(e){output.textContent='FAIL: '+e.message;}
- finally{post?.dispose();resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
+ finally{resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
 };
 </script>

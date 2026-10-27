@@ -34,7 +34,7 @@ export class SkyEnvironment implements BackgroundRenderable {
     private readonly device: GPUDevice;
     private readonly pipelines: SkyPipelines;
 
-    static async create(device: GPUDevice, modules: SkyModules, format: GPUTextureFormat): Promise<SkyEnvironment> {
+    static async create(device: GPUDevice, modules: SkyModules, format: GPUTextureFormat, cameraBuffer: GPUBuffer): Promise<SkyEnvironment> {
         const generate = await device.createComputePipelineAsync({ label: 'Sky Octahedral生成', layout: 'auto', compute: { module: modules.generate, entryPoint: 'generateSky' } });
         const project = await device.createComputePipelineAsync({ label: 'Sky SH局所投影', layout: 'auto', compute: { module: modules.project, entryPoint: 'projectSky' } });
         const reduce = await device.createComputePipelineAsync({ label: 'Sky SH最終集約', layout: 'auto', compute: { module: modules.reduce, entryPoint: 'reduceSky' } });
@@ -44,9 +44,9 @@ export class SkyEnvironment implements BackgroundRenderable {
             primitive: { topology: 'triangle-list' },
             depthStencil: { format: 'depth32float', depthWriteEnabled: false, depthCompare: 'greater-equal' }
         });
-        return new SkyEnvironment(device, { generate, project, reduce, render });
+        return new SkyEnvironment(device, { generate, project, reduce, render }, cameraBuffer);
     }
-    private constructor(device: GPUDevice, pipelines: SkyPipelines) {
+    private constructor(device: GPUDevice, pipelines: SkyPipelines, cameraBuffer: GPUBuffer) {
         this.device = device;
         this.pipelines = pipelines;
         this.map = device.createTexture({ label: 'Sky Octahedral 256²', size: [SKY_MAP_SIZE, SKY_MAP_SIZE], format: 'rgba16float',
@@ -66,11 +66,11 @@ export class SkyEnvironment implements BackgroundRenderable {
             { binding: 0, resource: { buffer: this.partials } }, { binding: 1, resource: { buffer: this.coefficients } }
         ] });
         this.renderGroup = device.createBindGroup({ layout: pipelines.render.getBindGroupLayout(0), entries: [
-            { binding: 0, resource: { buffer: this.parameters } }, { binding: 1, resource: { buffer: this.view } }
+            { binding: 0, resource: { buffer: this.parameters } }, { binding: 1, resource: { buffer: this.view } }, { binding: 2, resource: { buffer: cameraBuffer } }
         ] });
     }
-    encode(encoder: GPUCommandEncoder, light: Vec3, yaw: number, pitch: number, aspect: number, observerAltitude = 200): boolean {
-        const rays = skyRayFrame(yaw, pitch, aspect);
+    encode(encoder: GPUCommandEncoder, light: Vec3, yaw: number, pitch: number, aspect: number, observerAltitude = 200, verticalFov = Math.PI / 3): boolean {
+        const rays = skyRayFrame(yaw, pitch, aspect, verticalFov);
         this.device.queue.writeBuffer(this.view, 0, rays);
         const changed = this.previousAltitude !== observerAltitude || !this.previousLight || light.some((value, i) => value !== this.previousLight?.[i]);
         if (!changed) { return false; }

@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8"><title>Sky Octahedralデバッグ GPU検証</title>
+<style>body{background:#152127;color:#e1e7e7;font:16px monospace;padding:24px}pre{white-space:pre-wrap}</style>
+<h1>Sky Octahedralデバッグ GPU検証</h1><button id="run">実行</button><pre id="result">未実行</pre>
+<script type="module">
+const button=document.querySelector('#run'),output=document.querySelector('#result');
+button.onclick=async()=>{
+ let device;const resources=[];button.disabled=true;
+ try{
+  const root='/lab/webgpu/experiments/rendering-sandbox/v01/';
+  const {SkyDebug}=await import(root+'sky-debug.js');
+  const adapter=await navigator.gpu.requestAdapter();if(!adapter)throw Error('GPUなし');
+  device=await adapter.requestDevice();device.pushErrorScope('validation');
+  const load=async n=>{const r=await fetch(root+n,{cache:'no-cache'});if(!r.ok)throw Error(n);return r.text();};
+  const module=device.createShaderModule({code:await load('camera.wgsl')+await load('sky-debug.wgsl')});
+  const errors=(await module.getCompilationInfo()).messages.filter(e=>e.type==='error');if(errors.length)throw Error(errors.map(e=>e.message).join('\n'));
+  const texture=d=>{const t=device.createTexture(d);resources.push(t);return t;};
+  const buffer=(size,usage)=>{const b=device.createBuffer({size,usage});resources.push(b);return b;};
+  const map=texture({size:[2,2],format:'rgba16float',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+  const mapData=new Uint16Array([0x3c00,0,0,0x3c00, 0,0x4000,0,0x3c00, 0,0,0x4400,0x3c00, 0x3c00,0x3c00,0x3c00,0x3c00]);
+  device.queue.writeTexture({texture:map},mapData,{bytesPerRow:16},[2,2]);
+  const camera=buffer(16,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+  device.queue.writeBuffer(camera,0,new Float32Array([0.25,4,1,0.25]));
+  const hdr=texture({size:[64,64],format:'rgba16float',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});
+  const read=buffer(64*512,GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ);
+  const debug=await SkyDebug.create(device,module,map.createView(),camera);
+  const decode=b=>{const exp=(b>>10)&31,m=b&1023;return exp===0?m*2**-24:(1+m/1024)*2**(exp-15);};
+  async function render(enabled){
+   const e=device.createCommandEncoder();
+   const p=e.beginRenderPass({colorAttachments:[{view:hdr.createView(),loadOp:'clear',storeOp:'store',clearValue:[0.125,0.125,0.125,1]}]});p.end();
+   if(enabled)debug.encode(e,hdr.createView(),64,64);
+   e.copyTextureToBuffer({texture:hdr},{buffer:read,bytesPerRow:512},[64,64]);device.queue.submit([e.finish()]);
+   await read.mapAsync(GPUMapMode.READ);const data=new Uint16Array(read.getMappedRange()).slice();read.unmap();return data;
+  }
+  const on=await render(true),off=await render(false);
+  const pixel=(data,x,y)=>[0,1,2].map(c=>decode(data[(y*64+x)*4+c]));
+  const checks=[[16,16,[0.25,0,0]],[44,16,[0,0.5,0]],[16,44,[0,0,1]],[44,44,[0.25,0.25,0.25]],[0,0,[0.125,0.125,0.125]]];
+  for(const [x,y,expected]of checks)if(pixel(on,x,y).some((v,c)=>Math.abs(v-expected[c])>0.0001))throw Error('Mapの向き・位置・PreExposureが不正');
+  if(pixel(off,16,16).some(v=>v!==0.125))throw Error('OFF時にシーンが書き換わっています');
+  const error=await device.popErrorScope();if(error)throw Error(error.message);
+  output.textContent='PASS\n左上12pxの領域にMapの向きを維持して表示\nHDR入力1/2/4にPreExposure0.25を一度適用\n表示領域外・OFF時のHDRシーンを保持\nWebGPU validation errorなし';
+ }catch(e){output.textContent='FAIL: '+e.message;}
+ finally{resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
+};
+</script>

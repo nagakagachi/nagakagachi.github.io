@@ -32,7 +32,7 @@ export async function createOpaquePipelines(device: GPUDevice, geometryLayout: G
         primitive: { topology: 'triangle-list', frontFace: 'ccw', cullMode: 'back' },
         depthStencil: { format: 'depth32float', depthWriteEnabled: false, depthCompare: 'equal' }
     });
-    const wire = await device.createRenderPipelineAsync({ label: 'デバッグワイヤーフレーム', layout: depthLayout,
+    const wire = await device.createRenderPipelineAsync({ label: 'デバッグワイヤーフレーム', layout: shadingLayout,
         vertex: { module: forward, entryPoint: 'wireVertexMain' },
         fragment: { module: forward, entryPoint: 'wireMain', targets: [{ format }] },
         primitive: { topology: 'line-list' },

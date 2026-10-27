@@ -4,6 +4,7 @@ struct SkyView {
     up: vec4f, // 垂直のtan(FOV/2)を含む。
 }
 @group(0) @binding(1) var<uniform> view: SkyView;
+@group(0) @binding(2) var<uniform> cameraFrame: CameraFrame;
 struct SkyVertex {
     @builtin(position) clip: vec4f,
     @location(0) ndc: vec2f,
@@ -20,5 +21,5 @@ fn skyFragment(input: SkyVertex) -> @location(0) vec4f {
     // 背景はOctahedral Mapを引かず、ピクセルごとに同じ天球関数を直接評価する。
     let linearHdr = skyRadiance(ray);
     // 天球もForwardと同じHDRターゲットへ線形放射輝度を出力する。
-    return vec4f(linearHdr, 1.0);
+    return vec4f(preExposeRadiance(linearHdr, cameraFrame), 1.0);
 }

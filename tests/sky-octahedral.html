@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8"><title>Octahedral方向 GPU検証</title>
+<button id="run">実行</button><pre id="result">未実行</pre>
+<script type="module">
+const button=document.querySelector('#run'),output=document.querySelector('#result');
+button.onclick=async()=>{
+ let device;const buffers=[];
+ try{
+  device=await(await navigator.gpu.requestAdapter()).requestDevice();device.pushErrorScope('validation');
+  const source=await(await fetch('/lab/webgpu/experiments/rendering-sandbox/v01/sky-octahedral.wgsl')).text();
+  const samples=[[[.5,.5],[0,0,1]],[[1,.5],[1,0,0]],[[0,.5],[-1,0,0]],[[.5,0],[0,-1,0]],[[.5,1],[0,1,0]],[[0,0],[0,0,-1]],[[1,0],[0,0,-1]],[[0,1],[0,0,-1]],[[1,1],[0,0,-1]]];
+  let seed=123456789;
+  const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return(seed+.5)/4294967296;};
+  // 復号とは逆の方向→UV変換で、方向の往復と極軸を検証する。
+  for(let i=0;i<4096;i++){
+   const z=random()*2-1,a=random()*Math.PI*2,r=Math.sqrt(1-z*z),d=[r*Math.cos(a),r*Math.sin(a),z];
+   const sum=d.reduce((s,v)=>s+Math.abs(v),0);let x=d[0]/sum,y=d[1]/sum;
+   if(z<0){const old=x;x=(1-Math.abs(y))*(x<0?-1:1);y=(1-Math.abs(old))*(y<0?-1:1);}
+   samples.push([[(x+1)/2,(y+1)/2],d]);
+  }
+  const module=device.createShaderModule({code:source+`
+@group(0) @binding(0) var<storage,read> inputs:array<vec2f>;
+@group(0) @binding(1) var<storage,read_write> results:array<vec4f>;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id:vec3u){
+ if(id.x>=arrayLength(&inputs)){return;}
+ results[id.x]=vec4f(octahedralDirection(inputs[id.x]),octahedralWeight(inputs[id.x]));
+}`});
+  const errors=(await module.getCompilationInfo()).messages.filter(m=>m.type==='error');if(errors.length)throw Error(errors.map(m=>m.message).join('\n'));
+  const buffer=(size,usage)=>{const b=device.createBuffer({size,usage});buffers.push(b);return b;};
+  const input=buffer(samples.length*8,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),result=buffer(samples.length*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC),read=buffer(samples.length*16,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
+  device.queue.writeBuffer(input,0,new Float32Array(samples.flatMap(s=>s[0])));
+  const pipeline=await device.createComputePipelineAsync({layout:'auto',compute:{module,entryPoint:'main'}});
+  const group=device.createBindGroup({layout:pipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:input}},{binding:1,resource:{buffer:result}}]});
+  const encoder=device.createCommandEncoder(),pass=encoder.beginComputePass();pass.setPipeline(pipeline);pass.setBindGroup(0,group);pass.dispatchWorkgroups(Math.ceil(samples.length/64));pass.end();encoder.copyBufferToBuffer(result,0,read,0,read.size);device.queue.submit([encoder.finish()]);
+  await read.mapAsync(GPUMapMode.READ);const values=new Float32Array(read.getMappedRange());let maxError=0;
+  for(let i=0;i<samples.length;i++){
+   const error=Math.hypot(...samples[i][1].map((v,k)=>v-values[i*4+k]));maxError=Math.max(maxError,error);
+   if(error>2e-6||!(values[i*4+3]>0)||!Number.isFinite(values[i*4+3]))throw Error('方向不一致 '+i+': '+error);
+  }
+  read.unmap();const validation=await device.popErrorScope();if(validation)throw Error(validation.message);
+  output.textContent=`PASS: 9方向ランドマーク / 4096方向の往復\n最大方向誤差=${maxError}\nWebGPU validation errorなし`;
+ }catch(e){output.textContent='FAIL: '+e.message;}finally{buffers.forEach(b=>b.destroy());device?.destroy();}
+};
+</script>

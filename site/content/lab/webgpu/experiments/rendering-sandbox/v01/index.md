@@ -4,14 +4,14 @@ date: "2026-10-27"
 lastmod: "2026-10-27"
 layout: "sandbox"
 outputs: ["HTML", "Source"]
-description: "地球大気の天球・SHスカイライト・大気遠近法と、HDR出力を分離したレンダリング実験環境"
+description: "地形・大気散乱・SHスカイライトを使った、PreExposure対応のHDRレンダリング実験環境"
 ---
 
 学習用にAgentCodingで生成したデモです
 
 [版一覧](../) · [前の版：v00](../v00/)
 
-地形・シャドウ・天球を組み合わせたレンダリング実験環境です。v01では地球の大気散乱と大気遠近法を追加し、線形HDRのシェーディングとトーンマッピングを別パスに分けました。
+地形・シャドウ・天球を組み合わせたHDRレンダリングの実験環境です。地球の大気散乱、2次SHによるスカイライト、大気遠近法を扱い、PreExposureを適用したHDRカラーを最後にトーンマッピングして表示します。
 
 <!-- demo -->
 
@@ -22,8 +22,9 @@ description: "地球大気の天球・SHスカイライト・大気遠近法と�
 設定はビュー横のパネルにまとめています。地形シードなどは「地形」で変更し、生成ボタンで適用します。ライトの方位角0°は+Z、90°は+X、仰角は水平からの角度です。
 
 - 「大気遠近法」で、遠景の減衰と散乱光の有無を比較できます
-- 「ポストプロセス」の露出は、HDR合成後の画面全体へ作用します
+- 「カメラ」の露出倍率はPreExposureとして描画時に適用します。垂直画角は30〜110°で変更できます
 - 「SkyLight」の強度は地表の拡散環境光へ作用します
+- 「診断」のSky Octahedral MapをONにすると、SkyLightの入力テクスチャをビュー左上へ表示します
 - 「診断」の法線・タイル色・シャドウ可視率で形状やカリングを確認できます。可視率は白が受光、黒が遮蔽です
 - 「カリング・配置を固定」では、可視リストと地形配置を固定したままカメラを移動できます
 
@@ -35,8 +36,10 @@ description: "地球大気の天球・SHスカイライト・大気遠近法と�
 | --- | --- |
 | ZPrePass | メインビューの深度を確定 |
 | ShadowPass | ライト視点のShadow Mapを生成 |
-| ForwardShadingPass | 直接光・SkyLight・大気遠近法と天球を、線形HDRカラーへ出力 |
-| PostProcessPass | HDRカラーを読み、露出・トーンマッピング・表示色変換を適用 |
+| ForwardShadingPass | 直接光・SkyLight・大気遠近法と天球を、PreExposure済みの線形HDRへ出力 |
+| PostProcessPass | HDRカラーを読み、トーンマッピング・表示色変換を適用 |
+
+デバッグ表示がONの場合だけ、ForwardShadingPassとPostProcessPassの間にSkyMapDebugPassを発行します。
 
 これらの前に、必要な標高キャッシュ更新、天空環境の生成・SH投影、Main/ShadowのカリングをComputeで行います。ZPrePassをShadowPassより前に置くのは、将来SSAOなどがメイン深度を参照する構成を想定しているためです。この版ではSSAOや非同期Computeは実装していません。
 
@@ -76,14 +79,14 @@ ForwardはZPrePassの深度をReadOnlyで参照し、Equal比較で描画しま�
 
 ## 直接光とスカイライト
 
-### リニアワークフローと材質
+### HDRレンダリングと材質
 
 ```wgsl
 let skyDiffuse = albedo * evaluateSkySH(skySH, n) * lighting.skyDiffuse.w;
 var linearHdr = albedo * direct + skyDiffuse;
 ```
 
-アルベドはリニア反射率、直接光とSkyLightは線形の光量として計算します。現在のBRDFは正規化Lambertの拡散反射のみで、GGXスペキュラや金属材質は実装していません。
+アルベドはリニア反射率として扱い、直接光とSkyLightの照明結果を線形のHDRカラーとして加算します。現在のBRDFは正規化Lambertの拡散反射のみで、GGXスペキュラや金属材質は実装していません。
 
 直接光にはLambertの1/π、太陽から地表までの大気透過率、法線とライト方向の内積、Shadow Mapの可視率を適用します。SkyLightは法線方向に応じた天空からの拡散光です。影の中だけでなく全体へ加算し、直接光のShadow Mapによる可視率は掛けません。
 
@@ -93,7 +96,7 @@ var linearHdr = albedo * direct + skyDiffuse;
 textureStore(skyMap, vec2i(id.xy), vec4f(skyRadiance(direction), 1.0));
 ```
 
-背景と同じ天空関数を、256²・`rgba16float`のOctahedral Mapへ描画します。Yを上方向とし、下半球も含む全方向の線形放射輝度を保持します。キューブマップは使いません。
+背景と同じ天空関数を、256²・`rgba16float`のOctahedral Mapへ描画します。ワールドはY-upのまま、下半球も含む全方向の線形放射輝度を保持します。マッピングは+Zを中央の極とし、XYへ展開する方式です。キューブマップは使いません。
 
 ```wgsl
 let kernel = select(select(0.25, 0.6666666667, c < 4u), 1.0, c == 0u);
@@ -112,7 +115,7 @@ MapとSHは初回・太陽方向変更・観測高度変更時に更新します
 
 ```wgsl
 let linearHdr = skyRadiance(ray);
-return vec4f(linearHdr, 1.0);
+return vec4f(preExposeRadiance(linearHdr, cameraFrame), 1.0);
 ```
 
 背景はカメラからのピクセルレイで天空を直接評価します。画面の描画にOctahedral Mapを参照する構成ではなく、環境光の生成と背景の描画で同じ天空モデルを共有しています。
@@ -134,22 +137,41 @@ linearHdr = linearHdr * aerial.transmittance + aerial.scattering;
 
 天球には大気上端まで、地形にはその画素までの距離を使い、同じ大気積分関数で評価します。この合成はForwardShadingPass内のシーンリニアHDRで行い、結果をHDRターゲットへ書き込みます。地表付近の濃いHeight Fogは追加していません。
 
+## カメラとPreExposure
+
+HDRカラーの保存にPreExposureを採用しています。レンダーターゲットへ書き込む前に露出係数で値の範囲を調整し、FP16などの形式で大きな輝度を扱いやすくする手法です。スケーリング後も線形のHDRカラーとして処理します。
+
+```wgsl
+return vec4f(preExposeRadiance(linearHdr, cameraFrame), 1.0);
+```
+
+本実装ではカメラの手動露出倍率を使い、地形と天球のPS出力時に適用します。ポストプロセスでは露出を再適用しません。SkyLight用のOctahedral MapとSHは露出に依存しない値を保持します。自動露出は未実装です。
+
+垂直画角は地形の投影行列と天空のピクセルレイへ同じ値を渡します。露出・画角だけの変更では、環境マップやSHを再生成しません。
+
 ## トーンマッピング
 
 ```wgsl
-let linearHdr = textureLoad(sceneHdr, vec2i(pixel.xy), 0).rgb;
-let exposed = max(linearHdr * post.exposure, vec3f(0.0));
-let mapped = acesFilmic(exposed);
+let preExposedHdr = max(textureLoad(sceneHdr, vec2i(pixel.xy), 0).rgb, vec3f(0.0));
+let mapped = acesFilmic(preExposedHdr);
 return vec4f(linearToSrgb(mapped), 1.0);
 ```
 
-`post-process.wgsl`の抜粋です。独立したPostProcessPassがシーンHDRカラーを読み、露出 → ACES Filmic Tonemapping → sRGB変換の順でCanvasへ出力します。トーンマッピングはHDRの輝度範囲を表示用の範囲へ写像する処理で、大気による減衰・散乱とは別の段階です。
+`post-process.wgsl`の抜粋です。独立したPostProcessPassがPreExposure済みのHDRカラーを読み、ACES FilmicによるトーンマッピングとsRGB変換を行ってCanvasへ出力します。
 
-ForwardShadingPassは`rgba16float`へ線形HDRを出力し、露出・トーンマッピング・sRGB変換を行いません。直接光・SkyLight・大気の合成途中で1を超える値を保持します。Octahedral MapとSHも表示変換前の線形値のままです。
+照明と大気の合成では1を超える値を保持し、トーンマッピングで表示用の範囲へ写像します。Octahedral MapとSHはトーンマッピング前の値を使います。
 
-曲線はNarkowiczのACES Filmicフィット近似です。厳密なACESの色空間変換・表示変換一式ではなく、RGB各成分へ適用する簡略な曲線です。
+曲線はNarkowiczのACES Filmicフィット近似です。RGB各成分へ適用する簡略な曲線で、ACESの色空間変換や表示変換一式を実装したものではありません。
 
-現在はCanvasの非sRGB形式へ出力するため、最終シェーダーでsRGB変換を一度だけ行います。法線・タイル色・シャドウ可視率の診断表示は大気遠近法を迂回しますが、表示経路は同じPostProcessPassです。
+CanvasはsRGB色空間、書き込み先のテクスチャViewは通常のUNORM形式です。そのため、最終シェーダーでsRGBの伝達関数による符号化を一度だけ行います。法線・タイル色・シャドウ可視率の診断表示は大気遠近法を迂回しますが、表示経路は同じPostProcessPassです。
+
+## 天空環境マップのデバッグ表示
+
+「診断」のSky Octahedral Mapで、2次SHへの投影元となる256²のテクスチャを左上へ表示します。表示サイズは描画解像度で192×192、左と上の余白は12ピクセルです。
+
+表示はテクスチャのV=0を上に置きます。中央が+Z、四隅が−Z、右辺中央が+X、左辺中央が−X、上辺中央が−Y、下辺中央が+Yです。Octahedralの極軸と、ワールドの鉛直軸Yは別の規約として扱います。
+
+`SkyMapDebugPass`は環境マップを直接参照し、カメラのPreExposureを掛けてHDRターゲットへ重ねます。その後、シーンと同じトーンマッピングとsRGB変換を通します。MapやSHそのものの値は書き換えません。デバッグをOFFにしたときは、この描画パスを発行しません。
 
 ## GPUリソース
 
@@ -165,6 +187,7 @@ ForwardShadingPassは`rgba16float`へ線形HDRを出力し、露出・トーン�
 | シーンHDRカラー | rgba16float、約3.96 MiB |
 | 天空Octahedral Map | 256²、rgba16float、512 KiB |
 | SH投影用局所和・最終係数 | 144 KiB・144 B |
+| 共有Camera Uniform | 露出と履歴参照用の係数、16 B |
 
 ## 現在の制約
 
@@ -174,8 +197,13 @@ Shadow Mapは1枚で、カスケードや接触影、シャドウ専用LODはあ
 
 v00とv01は実行ソースをそれぞれのフォルダで所有しています。TerrainRendering00や保存済みの版を、別の版の開発で変更しない構成です。
 
-## 参考
+## 参考資料
 
-大気中の透過率と単一散乱の基礎式は[Brunetonの大気散乱モデルの解説](https://ebruneton.github.io/precomputed_atmospheric_scattering/atmosphere/functions.glsl.html)を参照しています。本実装は直接積分の簡略モデルで、同モデルの事前計算LUTや多重散乱を実装したものではありません。
-
-トーンマッピングには[NarkowiczのACES Filmic Tone Mapping Curve](https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/)のCC0公開フィットを使用しています。
+- 地形LOD：[Losasso・Hoppe — Geometry Clipmaps](https://hhoppe.com/geomclipmap.pdf)。タイルClipmap方式の出発点となる、入れ子の規則格子による地形LOD
+- Octahedralの方向表現：[PBRT 4 — Spherical Geometry](https://www.pbr-book.org/4ed/Geometry_and_Transformations/Spherical_Geometry)。+Zを極としたXYへの展開と復号
+- 拡散環境光：[GPU Gems 2 — Real-Time Computation of Dynamic Irradiance Environment Maps](https://developer.nvidia.com/gpugems/gpugems2/part-ii-shading-lighting-and-shadows/chapter-10-real-time-computation-dynamic)。2次SH・9係数による拡散照明の近似と畳み込み
+- 大気散乱：[Bruneton — Atmospheric Scattering Functions](https://ebruneton.github.io/precomputed_atmospheric_scattering/atmosphere/functions.glsl.html)。透過率・単一散乱・大気遠近法の基礎式。本実装は単一散乱の直接積分で、同資料の事前計算LUTや多重散乱は実装していません
+- PreExposure：[Epic Games — Auto Exposure / Pre-Exposure](https://dev.epicgames.com/documentation/en-us/unreal-engine/auto-exposure-in-unreal-engine#pre-exposure)。HDRカラーをシーンカラーへ保存する前にスケーリングする仕組み。本実装では自動露出ではなく手動の露出倍率を使います
+- トーンマッピング：[Narkowicz — ACES Filmic Tone Mapping Curve](https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/)。使用しているCC0公開のフィット近似
+- sRGB変換：[W3C — CSS Color 4, Color Conversions](https://www.w3.org/TR/css-color-4/#color-conversion-code)。線形RGBからsRGBへ符号化する伝達関数
+- Canvasの色空間：[WebGPU — GPUCanvasConfiguration](https://gpuweb.github.io/types/interfaces/GPUCanvasConfiguration.html)。表示色空間とテクスチャ形式の設定
