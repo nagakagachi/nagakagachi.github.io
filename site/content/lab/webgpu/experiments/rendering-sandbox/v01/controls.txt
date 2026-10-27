@@ -3,16 +3,26 @@
 <label class="check"><input id="gpu-freeze" type="checkbox"> カリング・配置を固定</label>
 <label class="check"><input id="gpu-aerial" type="checkbox" checked> 大気遠近法</label>
 </details>
+<details class="sandbox-panel"><summary>カメラ</summary>
+<label class="parameter"><span>移動速度</span><input id="gpu-speed" type="range" min="10" max="600" step="10" value="150"><output id="gpu-speed-value">150 m/s</output></label>
+<label class="parameter"><span>垂直画角</span><input id="gpu-fov" type="range" min="30" max="110" step="1" value="60"><output id="gpu-fov-value">60°</output></label>
+<label class="parameter"><span>露出 EV100</span><input id="gpu-ev100" type="range" min="-10" max="15" step="0.1" value="0"><output id="gpu-ev100-value">0 EV</output></label>
+</details>
 <details class="sandbox-panel"><summary>地形</summary>
 <label class="parameter"><span>シード</span><input id="gpu-seed" type="number" min="0" max="4294967295" step="1" value="12343725"></label>
 <label class="parameter"><span>標高振幅</span><input id="gpu-amplitude" type="range" min="100" max="2000" step="50" value="2000"><output id="gpu-amplitude-value">2000 m</output></label>
 <label class="parameter"><span>山スケール</span><input id="gpu-scale" type="range" min="500" max="8000" step="100" value="3100"><output id="gpu-scale-value">3100 m</output></label>
+<label class="parameter"><span>アルベド</span><select id="gpu-albedo-mode"><option value="height">標高に応じたグレー</option><option value="constant">固定値</option></select></label>
+<label class="parameter"><span>アルベド R</span><input id="gpu-albedo-r" type="range" min="0" max="1" step="0.01" value="1" disabled><output id="gpu-albedo-r-value">1</output></label>
+<label class="parameter"><span>アルベド G</span><input id="gpu-albedo-g" type="range" min="0" max="1" step="0.01" value="1" disabled><output id="gpu-albedo-g-value">1</output></label>
+<label class="parameter"><span>アルベド B</span><input id="gpu-albedo-b" type="range" min="0" max="1" step="0.01" value="1" disabled><output id="gpu-albedo-b-value">1</output></label>
 <button id="gpu-regenerate" type="button" disabled>地形を再生成</button>
 <label class="parameter"><span>タイル密度</span><select id="gpu-density"><option value="4">4×4</option><option value="8">8×8</option><option value="16">16×16</option></select></label>
 <label class="parameter"><span>カバー半径</span><select id="gpu-radius"><option value="250">250 m</option><option value="500">500 m</option><option value="1000">1 km</option><option value="2000">2 km</option><option value="4000">4 km</option><option value="8000">8 km</option><option value="16000" selected>16 km</option></select></label>
 <label class="check"><input id="gpu-snap" type="checkbox" checked> セルスナップ</label>
 </details>
 <details class="sandbox-panel" open><summary>ライト・シャドウ</summary>
+<label class="check"><input id="gpu-direct-light" type="checkbox" checked> 直接光</label>
 <label class="parameter"><span>方位角</span><input id="gpu-light-azimuth" type="range" min="0" max="360" step="1" value="60"><output id="gpu-light-azimuth-value">60°</output></label>
 <label class="parameter"><span>仰角</span><input id="gpu-light-elevation" type="range" min="1" max="85" step="1" value="30"><output id="gpu-light-elevation-value">30°</output></label>
 <label class="check"><input id="gpu-shadows" type="checkbox" checked> シャドウ</label>
@@ -21,11 +31,6 @@
 <label class="parameter"><span>法線バイアス</span><input id="gpu-normal-bias" type="range" min="0" max="10" step="0.1" value="1"><output id="gpu-normal-bias-value">1 m</output></label>
 <label class="parameter"><span>PCF</span><select id="gpu-pcf"><option value="0">1 tap</option><option value="1" selected>3×3</option><option value="2">5×5</option></select></label>
 </details>
-<details class="sandbox-panel"><summary>カメラ</summary>
-<label class="parameter"><span>移動速度</span><input id="gpu-speed" type="range" min="10" max="600" step="10" value="150"><output id="gpu-speed-value">150 m/s</output></label>
-<label class="parameter"><span>垂直画角</span><input id="gpu-fov" type="range" min="30" max="110" step="1" value="60"><output id="gpu-fov-value">60°</output></label>
-<label class="parameter"><span>露出 EV100</span><input id="gpu-ev100" type="range" min="-10" max="15" step="0.1" value="0"><output id="gpu-ev100-value">0 EV</output></label>
-</details>
 <details class="sandbox-panel"><summary>SkyLight</summary>
 <label class="parameter"><span>SkyLight強度</span><input id="gpu-sky-intensity" type="range" min="0" max="2" step="0.05" value="1"><output id="gpu-sky-intensity-value">1</output></label>
 </details>
@@ -33,6 +38,8 @@
 <label class="check"><input id="gpu-sky-map" type="checkbox"> Sky Octahedral Map</label>
 <label class="check"><input id="gpu-normals" type="checkbox"> 法線表示</label>
 <label class="check"><input id="gpu-wireframe" type="checkbox"> ワイヤーフレーム</label>
+<label class="check"><input id="gpu-height-grid" type="checkbox"> HeightMapグリッド（16×16テクセル）</label>
+<label class="check"><input id="gpu-height-cascades" type="checkbox"> Height Clipmap色分け</label>
 <label class="check"><input id="gpu-tile-colors" type="checkbox"> タイル色分け</label>
 <label class="check"><input id="gpu-shadow-mask" type="checkbox"> シャドウ可視率</label>
 <label class="parameter"><span>可視リスト集約</span><select id="gpu-compaction"><option value="auto">自動</option><option value="workgroup">workgroup</option></select></label>

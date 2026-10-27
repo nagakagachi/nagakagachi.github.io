@@ -163,9 +163,37 @@ button.onclick = async () => {
             if(Math.abs(pixel(preExposed,15,0)/255-2)>0.01)throw Error('Forward出力にPreExposureが適用されていません');
             device.queue.writeBuffer(cameraBuffer,0,new Float32Array([1,1,0.5,2]));
         }
+        if(hdr){
+            // 一様天空L=0.25に対し、白・灰・黒の反射率が正規化Lambertの期待値に一致する。
+            shData.fill(0);shData.set([0.25/0.2820947918,0.25/0.2820947918,0.25/0.2820947918,0]);
+            device.queue.writeBuffer(shBuffer,0,shData);
+            for(const reflectance of [[1,1,1],[0.5,0.5,0.5],[0,0,0],[1,0.25,0.5]]){
+                lighting.set(reflectance,28);lighting[38]=1;
+                const image=await render(true);
+                for(const x of [15,-10]){
+                    const base=(128*256+Math.floor((x+32)*4))*4;
+                    for(let c=0;c<3;c++)if(Math.abs(image[base+c]/255-0.25*reflectance[c])>0.001)throw Error('固定RGBアルベドのSkyLight出力が不正');
+                }
+            }
+            lighting.set([1,1,1],28);lighting[38]=1;
+        }
         lighting[31]=0;
         const skyOff=await render(true);
         if(pixel(skyOff,15,0)!==0||pixel(skyOff,-10,0)!==0){throw Error('SkyLight強度0で光が残ります');}
+        if(hdr){
+            // SkyLightが0でも段0の識別色が出力され、法線の正規化や照明が混入しない。
+            device.queue.writeBuffer(main.uniform,51*4,new Float32Array([1]));
+            const cascades=await render(true),base=(128*256+188)*4;
+            for(const [c,v]of [0.85,0.18,0.15].entries())if(Math.abs(cascades[base+c]/255-v)>0.001)throw Error('Height Clipmap識別色が不正');
+            device.queue.writeBuffer(main.uniform,55*4,new Float32Array([1]));
+            const gridImage=await render(true);
+            for(const sign of [-1,1]){
+                const line=pixel(gridImage,sign*16,8),inside=pixel(gridImage,sign*8,8);
+                if(!(line<inside*0.6))throw Error('16テクセル格子の線または負座標の位相が不正');
+            }
+            device.queue.writeBuffer(main.uniform,55*4,new Float32Array([0]));
+            device.queue.writeBuffer(main.uniform,51*4,new Float32Array([0]));
+        }
         const visibilityRead=buffer(12840,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
         const visibilityEncoder=device.createCommandEncoder();
         visibilityEncoder.copyBufferToBuffer(main.args,0,visibilityRead,0,20);
@@ -180,7 +208,7 @@ button.onclick = async () => {
         visibilityRead.unmap();
         if(!offscreen.length){throw Error('メイン視野外のキャスターがシャドウリストに残っていません');}
         const error=await device.popErrorScope();if(error){throw Error(error.message);}
-        output.textContent=`PASS\n全65,536画素でZPrePass/Forward Equalの被覆一致\n稜線の光源側=${lit}、遮蔽側=${shade}（0〜255）\nMain=${mainCount} / Shadow=${shadowCount} / メイン視野外キャスター=${offscreen.length}件\nSkyLightのみ: 受光側=${skyLit} / 遮蔽側=${skyShade} / 強度0で両方0\n実シェーダー・独立カリング・3 Passを使用 / WebGPU validation errorなし`;
+        output.textContent=`PASS\n全65,536画素でZPrePass/Forward Equalの被覆一致\n稜線の光源側=${lit}、遮蔽側=${shade}（0〜255）\nMain=${mainCount} / Shadow=${shadowCount} / メイン視野外キャスター=${offscreen.length}件\nSkyLightのみ: 受光側=${skyLit} / 遮蔽側=${skyShade} / 強度0で両方0\n固定RGBアルベド白・灰・黒・有彩色の一様天空テスト成功（v01）\n実シェーダー・独立カリング・3 Passを使用 / WebGPU validation errorなし`;
     }catch(error){output.textContent='FAIL: '+error.message;}
     finally{resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
 };

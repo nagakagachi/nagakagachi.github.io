@@ -48,7 +48,9 @@
 }
 
 .sandbox-inspector {
-    max-height:calc(100vh - 32px);
+    /* ビューの実寸高を上限にし、低いウィンドウでは画面内にも収める。 */
+    box-sizing:border-box;
+    max-height:min(var(--inspector-height,540px),calc(100dvh - 24px));
     overflow-y:auto;
     overscroll-behavior:contain;
     border:1px solid var(--line);
@@ -184,7 +186,8 @@
 }
 
 .sandbox-inspector {
-    max-height:340px
+    /* 縦並びではタッチ操作用の高さを確保し、画面の半分以上を占有しない。 */
+    max-height:min(340px,45svh)
 }
 
 .sandbox-article .article-header h1 {

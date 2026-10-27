@@ -30,12 +30,33 @@ function element<T extends Element>(selector: string, type: {
 const start = element('#gpu-start', HTMLButtonElement);
 const resetCamera = element('#gpu-camera-reset', HTMLButtonElement);
 const canvas = element('#gpu-canvas', HTMLCanvasElement);
+// GPUの実行状態とは独立して、実寸のツールバー＋ビュー高へ設定パネルを合わせる。
+// メトリクスや設定項目の展開では上限を増やさず、幅変更とズームにだけ追従する。
+const inspector = element('.sandbox-inspector', HTMLElement);
+const toolbar = element('.sandbox-toolbar', HTMLElement);
+const workspace = element('.sandbox-workspace', HTMLElement);
+inspector.tabIndex = 0;
+const updateInspectorHeight = (): void => {
+    const height = canvas.getBoundingClientRect().bottom - toolbar.getBoundingClientRect().top;
+    workspace.style.setProperty('--inspector-height', `${Math.ceil(height)}px`);
+};
+const inspectorObserver = new ResizeObserver(updateInspectorHeight);
+const observeInspectorLayout = (): void => {
+    inspectorObserver.observe(canvas);
+    inspectorObserver.observe(toolbar);
+    updateInspectorHeight();
+};
+observeInspectorLayout();
+window.addEventListener('pagehide', () => inspectorObserver.disconnect());
+window.addEventListener('pageshow', observeInspectorLayout);
 const status = element('#gpu-status', HTMLParagraphElement);
 const info = element('#gpu-info', HTMLDListElement);
 const snapGrid = element('#gpu-snap', HTMLInputElement);
 const showNormals = element('#gpu-normals', HTMLInputElement);
 const wireframe = element('#gpu-wireframe', HTMLInputElement);
 const tileColors = element('#gpu-tile-colors', HTMLInputElement);
+const heightCascades = element('#gpu-height-cascades', HTMLInputElement);
+const heightGrid = element('#gpu-height-grid', HTMLInputElement);
 const culling = element('#gpu-culling', HTMLInputElement);
 const freeze = element('#gpu-freeze', HTMLInputElement);
 const density = element('#gpu-density', HTMLSelectElement);
@@ -52,6 +73,9 @@ const verticalFov = element('#gpu-fov', HTMLInputElement);
 const showSkyMap = element('#gpu-sky-map', HTMLInputElement);
 const aerial = element('#gpu-aerial', HTMLInputElement);
 const skyIntensity = element('#gpu-sky-intensity', HTMLInputElement);
+const albedoMode = element('#gpu-albedo-mode', HTMLSelectElement);
+const albedoInputs = ['r', 'g', 'b'].map(channel => element(`#gpu-albedo-${channel}`, HTMLInputElement));
+const directLight = element('#gpu-direct-light', HTMLInputElement);
 const shadowMask = element('#gpu-shadow-mask', HTMLInputElement);
 const azimuth = element('#gpu-light-azimuth', HTMLInputElement);
 const elevation = element('#gpu-light-elevation', HTMLInputElement);
@@ -549,8 +573,8 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
                 settings.set(projection);
                 settings.set([...light, 0], 40);
                 settings.set([-bound, 1 / (2 * bound), Number(showNormals.checked), Number(tileColors.checked)], 44);
-                settings.set([HEIGHT_SIZE, height.count, 1, 0], 48);
-                settings.set([0, -bound, bound, 0], 52);
+                settings.set([HEIGHT_SIZE, height.count, 1, Number(heightCascades.checked)], 48);
+                settings.set([0, -bound, bound, Number(heightGrid.checked)], 52);
                 new Uint32Array(settings.buffer).set([layout.density, layout.levels, layout.count, Number(culling.checked)], 56);
                 settings.set(origins, 60);
                 new Int32Array(settings.buffer).set(height.windows, 92);
@@ -561,12 +585,13 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
             uploadView(shadowView, lightMatrix, activeCache);
             const lighting = new Float32Array(40);
             lighting.set(lightMatrix);
-            lighting.set([...light, 20.0], 16);
+            lighting.set([...light, directLight.checked ? 20.0 : 0.0], 16);
             lighting.set([Number(shadows.checked), Number(depthBias.value), Number(normalBias.value), 1 / SHADOW_RESOLUTION], 20);
             lighting.set([Number(pcf.value), Number(shadowMask.checked), 0, 0], 24);
-            lighting.set([0, 0, 0, Number(skyIntensity.value)], 28);
+            // 材質変更は照明用Uniformだけに反映し、地形と天空の再生成は行わない。
+            lighting.set([...albedoInputs.map(input => Number(input.value)), Number(skyIntensity.value)], 28);
             lighting.set([...camera.position, 0], 32);
-            lighting.set([Number(aerial.checked), ATMOSPHERE_REFERENCE_ALTITUDE, 0, 0], 36);
+            lighting.set([Number(aerial.checked), ATMOSPHERE_REFERENCE_ALTITUDE, Number(albedoMode.value === 'constant'), 0], 36);
             device.queue.writeBuffer(lightingBuffer, 0, lighting);
             if (live) {
                 const compute = compaction.value === 'auto' && subgroupCompute ? subgroupCompute : workgroupCompute;
@@ -679,9 +704,10 @@ start.addEventListener('click', async () => {
     }
 });
 resetCamera.addEventListener('click', () => { clearInput(); camera = defaultCamera(); scheduleDraw(); });
-for (const control of [wireframe, snapGrid, showNormals, tileColors, culling, density, radius, compaction, shadows, shadowMask, azimuth, elevation, shadowWidth, depthBias, normalBias, pcf, aerial, showSkyMap]) {
+for (const control of [wireframe, snapGrid, showNormals, tileColors, culling, density, radius, compaction, shadows, shadowMask, azimuth, elevation, shadowWidth, depthBias, normalBias, pcf, aerial, showSkyMap, directLight, heightCascades, heightGrid]) {
     control.addEventListener('change', scheduleDraw);
 }
+albedoMode.addEventListener('change', () => { albedoInputs.forEach(input => { input.disabled = albedoMode.value !== 'constant'; }); scheduleDraw(); });
 freeze.addEventListener('change', () => { layoutControls.forEach(c => { c.disabled = freeze.checked; }); scheduleDraw(); });
 speed.addEventListener('input', () => { speedValue.value = `${speed.value} m/s`; });
 function clearInput(): void { keys.clear(); lastTime = 0; clearPointers(); }
@@ -774,6 +800,7 @@ const lightReadouts: Array<[HTMLInputElement, HTMLOutputElement, string]> = [[az
     [depthBias, element('#gpu-depth-bias-value', HTMLOutputElement), ''],
     [normalBias, element('#gpu-normal-bias-value', HTMLOutputElement), ' m'],
     [skyIntensity, element('#gpu-sky-intensity-value', HTMLOutputElement), ''],
+    ...albedoInputs.map((input): [HTMLInputElement, HTMLOutputElement, string] => [input, element(`#${input.id}-value`, HTMLOutputElement), '']),
     [ev100, element('#gpu-ev100-value', HTMLOutputElement), ' EV'],
     [verticalFov, element('#gpu-fov-value', HTMLOutputElement), '°']];
 for (const [input, output, unit] of lightReadouts) {

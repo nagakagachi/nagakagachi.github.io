@@ -4,8 +4,8 @@ struct Scene {
     planes: array<vec4f, 6>,
     light: vec4f,
     elevation: vec4f, // 最低標高、標高幅の逆数、法線表示、タイル色分け。
-    domain: vec4f, // 標高窓サイズ、標高段数、最細間隔、予約。
-    terrain: vec4f, // 標高原点、最低/最高標高の保守的範囲、予約。
+    domain: vec4f, // 標高窓サイズ、標高段数、最細間隔、Height Clipmap色分け。
+    terrain: vec4f, // 標高原点、最低/最高標高の保守的範囲、HeightMapグリッド。
     layoutInfo: vec4u, // 密度、LOD段数、候補数、カリング有効フラグ。
     cascades: array<vec4f, 8>, // 原点X/Z、セル間隔、段の半幅。
     heightWindows: array<vec4i, 7>, // 各標高窓の世界格子原点X/Z、予約、予約。
