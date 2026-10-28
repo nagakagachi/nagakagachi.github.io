@@ -1,7 +1,6 @@
 <details class="sandbox-panel" open><summary>描画</summary>
 <label class="check"><input id="gpu-culling" type="checkbox" checked> フラスタムカリング</label>
 <label class="check"><input id="gpu-freeze" type="checkbox"> カリング・配置を固定</label>
-<label class="check"><input id="gpu-aerial" type="checkbox" checked> 大気遠近法</label>
 </details>
 <details class="sandbox-panel"><summary>カメラ</summary>
 <label class="parameter"><span>移動速度</span><input id="gpu-speed" type="range" min="10" max="600" step="10" value="150"><output id="gpu-speed-value">150 m/s</output></label>
@@ -33,13 +32,16 @@
 <label class="parameter"><span>法線バイアス</span><input id="gpu-normal-bias" type="range" min="0" max="10" step="0.1" value="1"><output id="gpu-normal-bias-value">1 m</output></label>
 <label class="parameter"><span>PCF</span><select id="gpu-pcf"><option value="0">1 tap</option><option value="1" selected>3×3</option><option value="2">5×5</option></select></label>
 </details>
-<details class="sandbox-panel"><summary>SkyLight</summary>
+<details class="sandbox-panel"><summary>Sky</summary>
+<label class="check"><input id="gpu-aerial" type="checkbox" checked> 大気遠近法</label>
 <label class="check"><input id="gpu-specular-ibl" type="checkbox" checked> Specular IBL</label>
 <label class="check"><input id="gpu-animate-sun" type="checkbox"> 太陽を動かす</label>
 <label class="parameter"><span>SkyLight強度</span><input id="gpu-sky-intensity" type="range" min="0" max="2" step="0.05" value="1"><output id="gpu-sky-intensity-value">1</output></label>
 </details>
-<details class="sandbox-panel"><summary>診断</summary>
+<details class="sandbox-panel"><summary>デバッグ</summary>
 <label class="check"><input id="gpu-csm-colors" type="checkbox"> CSM色分け</label>
+<label class="check"><input id="gpu-csm-grid" type="checkbox"> CSMテクセルグリッド</label>
+<label class="parameter"><span>CSMグリッド間隔</span><select id="gpu-csm-grid-step"><option value="1">1テクセル</option><option value="4">4テクセル</option><option value="16" selected>16テクセル</option></select></label>
 <label class="check"><input id="gpu-specular-map" type="checkbox"> GGX Octahedral Map</label>
 <label class="parameter"><span>GGX Mip</span><input id="gpu-specular-mip" type="range" min="0" max="4" step="1" value="0"><output id="gpu-specular-mip-value">0</output></label>
 <label class="check"><input id="gpu-sky-map" type="checkbox"> Sky Octahedral Map</label>

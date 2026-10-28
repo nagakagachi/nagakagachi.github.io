@@ -9,7 +9,7 @@ struct Lighting {
     shadowViewProjection: mat4x4f,
     light: vec4f, // 地表から光源への方向、直射光強度。
     shadow: vec4f, // 有効、比較時深度バイアス、法線バイアスm、1/解像度。
-    shadowFilter: vec4f, // PCF半径、影の可視化、予約、予約。
+    shadowFilter: vec4f, // PCF半径、影の可視化、CSM格子のテクセル間隔（0はOFF）、予約。
     skyDiffuse: vec4f, // RGBは固定アルベド、WはSH Diffuse強度。
     cameraPosition: vec4f, // ワールドカメラXYZ、Wは予約。
     atmosphere: vec4f, // 大気遠近法有効、基準高度、固定アルベド有効、予約。
@@ -40,9 +40,9 @@ fn heightCascadeColor(layer: u32) -> vec3f {
 fn vertexMain(@builtin(vertex_index) id: u32, @builtin(instance_index) instance: u32) -> VertexOutput {
     let surface = terrainVertex(id, instance);
     if (scene.domain.w != 0.0 || scene.terrain.w != 0.0) {
-        // 診断時は法線属性を色として再利用し、補間属性を増やさない。法線用の標高参照も省く。
+        // デバッグ時は法線属性を色として再利用し、補間属性を増やさない。法線用の標高参照も省く。
         let color = mix(heightCascadeColor(surface.layer), heightCascadeColor(surface.coarseLayer), surface.weight);
-        // 診断では高さ属性を混合率、タイルID属性をpacked descriptorとして再利用する。
+        // デバッグでは高さ属性を混合率、タイルID属性をpacked descriptorとして再利用する。
         return VertexOutput(surface.clip, color, surface.weight, visible[instance], vec3f(surface.xz.x, surface.height, surface.xz.y));
     }
     // 外周では法線参照の間隔も粗い段へ合わせ、隣接する段との陰影差を抑える。
@@ -128,8 +128,27 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
         }
         return vec4f(preExposeRadiance(color, cameraFrame), 1.0);
     }
-    if(lighting.material.w!=0.0) {
-        return vec4f(preExposeRadiance(heightCascadeColor(cascadeIndex(input.worldPosition)),cameraFrame),1);
+    if (lighting.material.w != 0.0 || lighting.shadowFilter.z > 0.0) {
+        let cascade = cascadeIndex(input.worldPosition);
+        let depth = dot(input.worldPosition, lighting.viewForward.xyz) + lighting.viewForward.w;
+        let clip = lighting.shadowMatrices[cascade] * vec4f(input.worldPosition, 1.0);
+        let uv = clip.xy * vec2f(0.5, -0.5) + 0.5;
+        let covered = depth <= lighting.splits.w && all(uv >= vec2f(0.0)) && all(uv <= vec2f(1.0))
+            && clip.z >= 0.0 && clip.z <= 1.0;
+        var color = select(vec3f(0.65), heightCascadeColor(cascade), lighting.material.w != 0.0);
+        if (!covered) { color = vec3f(0.15); }
+        // バイアス前の受光位置を各段の1024²テクセル座標へ投影する。
+        // 格子は段ごとに独立。切替帯でも混合せず、選択段の密度を表示する。
+        if (lighting.shadowFilter.z > 0.0) {
+            let cell = uv * (1024.0 / max(lighting.shadowFilter.z, 1.0));
+            let footprint = max(fwidth(cell), vec2f(0.0001));
+            let distance = abs(fract(cell + 0.5) - 0.5);
+            let coverage = 1.0 - smoothstep(vec2f(0.3), vec2f(1.3), distance / footprint);
+            let fade = clamp(1.0 - max(footprint.x, footprint.y) * 2.0, 0.0, 1.0);
+            let grid = max(coverage.x, coverage.y) * fade * f32(covered);
+            color = mix(color, vec3f(0.015), grid);
+        }
+        return vec4f(preExposeRadiance(color, cameraFrame), 1.0);
     }
     let n = normalize(input.normal);
     if (scene.elevation.z != 0.0) { return vec4f(preExposeRadiance(n * 0.5 + 0.5, cameraFrame), 1.0); }
@@ -152,11 +171,13 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     let direct=directBRDF(n,v,lighting.light.xyz,albedo,roughness,metallic)*lighting.light.w*sunT*visibility;
     // GPUで投影・Lambert畳み込みした2次SHを、ワールド空間の法線で評価する。
     let noV=max(dot(n,v),0.0001);
-    let f=fresnelSchlick(noV,f0);
-    let skyDiffuse=(vec3f(1.0)-f)*(1.0-metallic)*albedo*evaluateSkySH(skySH,n)*lighting.skyDiffuse.w;
-    let dfg=textureSampleLevel(brdfMap,brdfSampler,vec2f(noV,roughness),0.0).rg;
+    let dfg = textureSampleLevel(brdfMap, brdfSampler, vec2f(noV, roughness), 0.0).rg;
+    let specularReflectance = iblSpecularReflectance(f0, dfg);
+    // 単一散乱GGXの方向別積分を使ったエネルギー配分の近似。多重散乱補償ではない。
+    let skyDiffuse = (vec3f(1.0) - specularReflectance) * (1.0 - metallic) * albedo
+        * evaluateSkySH(skySH, n) * lighting.skyDiffuse.w;
     let reflected=reflect(-v,n);
-    let specularIBL=sampleOctRoughness(specularMap,brdfSampler,reflected,roughness)*(f0*dfg.x+dfg.y)*lighting.skyDiffuse.w*lighting.material.z;
+    let specularIBL=sampleOctRoughness(specularMap,brdfSampler,reflected,roughness)*specularReflectance*lighting.skyDiffuse.w*lighting.material.z;
     // 直接光とSkyLightをシーンリニアHDRで加算する。1を超える値を保持する。
     var linearHdr = direct + skyDiffuse + specularIBL;
     if (lighting.atmosphere.x != 0.0) {

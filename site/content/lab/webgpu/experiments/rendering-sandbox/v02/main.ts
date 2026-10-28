@@ -81,6 +81,8 @@ const metallic=element('#gpu-metallic',HTMLInputElement);
 const specularIBL=element('#gpu-specular-ibl',HTMLInputElement);
 const animateSun=element('#gpu-animate-sun',HTMLInputElement);
 const csmColors=element('#gpu-csm-colors',HTMLInputElement);
+const csmGrid = element('#gpu-csm-grid', HTMLInputElement);
+const csmGridStep = element('#gpu-csm-grid-step', HTMLSelectElement);
 const showSpecularMap=element('#gpu-specular-map',HTMLInputElement);
 const specularMip=element('#gpu-specular-mip',HTMLInputElement);
 const albedoMode = element('#gpu-albedo-mode', HTMLSelectElement);
@@ -627,7 +629,7 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
             lighting.set(lightMatrix);
             lighting.set([...light, directLight.checked ? 20.0 : 0.0], 16);
             lighting.set([Number(shadows.checked), Number(depthBias.value), Number(normalBias.value), 1 / SHADOW_RESOLUTION], 20);
-            lighting.set([Number(pcf.value), Number(shadowMask.checked), 0, 0], 24);
+            lighting.set([Number(pcf.value), Number(shadowMask.checked), csmGrid.checked ? Number(csmGridStep.value) : 0, 0], 24);
             // 材質変更は照明用Uniformだけに反映し、地形と天空の再生成は行わない。
             lighting.set([...albedoInputs.map(input => Number(input.value)), Number(skyIntensity.value)], 28);
             lighting.set([...camera.position, 0], 32);
@@ -753,7 +755,7 @@ start.addEventListener('click', async () => {
     }
 });
 resetCamera.addEventListener('click', () => { clearInput(); camera = defaultCamera(); scheduleDraw(); });
-for (const control of [wireframe, snapGrid, showNormals, tileColors, culling, density, radius, compaction, shadows, shadowMask, azimuth, elevation, shadowWidth, depthBias, normalBias, pcf, aerial, showSkyMap, directLight, heightCascades, heightGrid, specularIBL, animateSun, csmColors, showSpecularMap]) {
+for (const control of [wireframe, snapGrid, showNormals, tileColors, culling, density, radius, compaction, shadows, shadowMask, azimuth, elevation, shadowWidth, depthBias, normalBias, pcf, aerial, showSkyMap, directLight, heightCascades, heightGrid, specularIBL, animateSun, csmColors, csmGrid, csmGridStep, showSpecularMap]) {
     control.addEventListener('change', scheduleDraw);
 }
 animateSun.addEventListener('change',()=>{animatedAzimuth=Number(azimuth.value);});

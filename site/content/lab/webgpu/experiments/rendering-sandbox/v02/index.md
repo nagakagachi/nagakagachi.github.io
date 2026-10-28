@@ -19,7 +19,7 @@ description: "4段CSM AtlasとGGX・Lambert、Octahedral MapによるSplit-Sum I
 
 「実行」で開始します。WASDで前後左右、Q/Eで上下、Shiftで加速、ドラッグ・矢印キーで視点を回転します。ホイールでも前後へ移動できます。
 
-設定パネルは3Dビュー程度の高さで内部スクロールします。上から描画・カメラ・地形・ライト／シャドウ・SkyLight・診断の順です。
+設定パネルは3Dビュー程度の高さで内部スクロールします。上から描画・カメラ・地形・ライト／シャドウ・Sky・デバッグの順です。
 
 - 地形のRoughness・Metallicと固定RGBアルベドで材質を変更できます。RGBは0〜1のリニア反射率です
 - 直接光とSpecular IBLは個別にOFFにできます。SkyLight強度はDiffuseとSpecularの両方に掛かります
@@ -27,6 +27,8 @@ description: "4段CSM AtlasとGGX・Lambert、Octahedral MapによるSplit-Sum I
 - シャドウ距離はCSM全体の最遠距離です。既定は4096 mで、4段の分割位置を自動で求めます
 - 「太陽を動かす」で方位角を毎フレーム変更し、天空・SH・GGX Prefilterを同じフレームで更新します。OFFでは静止画を連続描画しません
 - 「GGX Octahedral Map」と「GGX Mip」で、Prefiltered Mapの各Mipを表示できます。元のSky Mapと同時にONにすると左右へ並びます
+- Sky枠に大気遠近法とSkyLightの設定をまとめています
+- デバッグの「CSMテクセルグリッド」は各段の光源投影上に1・4・16テクセル間隔の格子を表示します。CSM色分けと併用でき、段の切替で世界空間の密度が変わる様子を確認できます。範囲外は暗いグレーです
 - CSM色分けは参照するシャドウ段、Height Clipmap色分けは標高段、HeightMapグリッドは16×16標高テクセル単位を示します
 - 「カリング・配置を固定」で可視リストと標高窓・シャドウ投影を固定できます。検証中は太陽アニメーションも止まります
 
@@ -87,7 +89,15 @@ F0は非金属の0.04からアルベドへMetallicで補間します。Roughness
 
 背景と同じ地球大気モデルで、256²・`rgba16float`の全方向Octahedral Mapを生成します。+Z極・XY展開で、世界の鉛直はY-upのままです。立体角を補正して2次SHの9係数へ投影し、正規化Lambertの畳み込み係数1・2/3・1/4を適用します。
 
-材質側ではSHのDiffuseへアルベド・非金属成分・Fresnelによる拡散側の減衰を掛けます。鏡面IBLも加わったため、白色面の最終出力が天空の一点やDiffuse積分だけと一致する条件ではありません。単一散乱のモデルで、多重散乱によるエネルギー補償は加えていません。
+材質側ではBRDF LUTから鏡面の方向別積分反射率 `E = F0 * A + B` を求め、SHのDiffuseへ `(1 - E) * (1 - Metallic) * Albedo` を掛けます。マクロ法線のSchlick Fresnel(NoV)をDiffuseへ直接使うと、高ラフネスでも斜め視点の拡散光をほぼ消してしまうため、鏡面側と同じGGXの積分値を使います。
+
+### IBLのエネルギー配分と制約
+
+積分した鏡面反射率を使ってDiffuseへの配分を決める考え方には実用例があります。[three.jsのIBL実装](https://github.com/mrdoob/three.js/blob/dev/src/renderers/shaders/ShaderChunk/lights_physical_pars_fragment.glsl.js)では、単一散乱と多重散乱の鏡面反射率をDiffuse側から差し引きます。本版の `1 - E` は、単一散乱のみを扱う簡略形です。唯一の標準式や、three.jsと同一の材質モデルという意味ではありません。
+
+これはSplit-Sumに合わせたエネルギー配分の近似で、厳密な層状材質モデルではありません。多重散乱による鏡面のエネルギー補償も加えていないため、特に粗い金属では単一散乱GGXに由来する暗化が残ります。この点は[Filamentの鏡面反射のエネルギー損失と補償](https://google.github.io/filament/main/filament.html#materialsystem/improvingthebrdfs/energylossinspecularreflectance)でも扱われています。直接光のBRDFは、このIBL側の配分変更では変えていません。
+
+実GPUでは、一様な白色天空を想定した非金属について、3段階のRoughnessと3段階のNoVでDiffuseとSpecularの配分の和を確認しています。Roughness=1・NoV=0.005でもDiffuseが保持されます。ただし、この検証は任意の照明分布に対する物理的正確さを証明するものではありません。非一様な天空では、SHによるDiffuseと反射方向を中心とするPrefilter環境の近似誤差も含まれます。
 
 ### GGX PrefilterとBRDF LUT
 

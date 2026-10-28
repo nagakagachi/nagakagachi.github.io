@@ -37,6 +37,27 @@ button.onclick=async()=>{
    if(value.some((v,c)=>Math.abs(v-[1,2,4][c])>0.01))throw Error('一様天空の保存が不正');
   }
   for(let i=0;i<first.brdf.length;i+=4){const a=decode(first.brdf[i]),b=decode(first.brdf[i+1]);if(!Number.isFinite(a+b)||a<0||b<0||a+b>1.05)throw Error('BRDF LUTの値域が不正');}
+  // 実際のLUTと共有関数で、粗い非金属面の斜め視点と白色天空の収支を検証する。
+  const energyRead=buffer(9*16,GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ);
+  const energyValues=buffer(9*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC);
+  const energyModule=await module(pbr+`@group(0) @binding(0) var lut:texture_2d<f32>;
+@group(0) @binding(1) var filtering:sampler;
+@group(0) @binding(2) var<storage,read_write> values:array<vec4f>;
+@compute @workgroup_size(1) fn energy(@builtin(global_invocation_id) id:vec3u) {
+    let noV=array<f32,3>(0.005,0.1,1.0)[id.x];
+    let roughness=array<f32,3>(0.04,0.5,1.0)[id.y];
+    let ab=textureSampleLevel(lut,filtering,vec2f(noV,roughness),0.0).rg;
+    let specular=iblSpecularReflectance(vec3f(0.04),ab).x;
+    let diffuse=1.0-specular;
+    values[id.y*3u+id.x]=vec4f(specular,diffuse,specular+diffuse,1.0);
+}`);
+  const energy=await device.createComputePipelineAsync({layout:'auto',compute:{module:energyModule,entryPoint:'energy'}});
+  const energyGroup=device.createBindGroup({layout:energy.getBindGroupLayout(0),entries:[
+   {binding:0,resource:environment.lut.createView()},{binding:1,resource:environment.sampler},{binding:2,resource:{buffer:energyValues}}]});
+  const ee=device.createCommandEncoder(),ep=ee.beginComputePass();ep.setPipeline(energy);ep.setBindGroup(0,energyGroup);ep.dispatchWorkgroups(3,3);ep.end();ee.copyBufferToBuffer(energyValues,0,energyRead,0,energyRead.size);device.queue.submit([ee.finish()]);
+  await energyRead.mapAsync(GPUMapMode.READ);const energies=new Float32Array(energyRead.getMappedRange()).slice();energyRead.unmap();
+  for(let i=0;i<9;i++)if(!Number.isFinite(energies[i*4])||Math.abs(energies[i*4+2]-1)>0.0001)throw Error('白色天空の非金属エネルギー収支が不正');
+  if(energies[6*4+1]<0.8)throw Error('高ラフネスのグレージング角でDiffuseが消失');
   // 別の天空へ置き換えた直後に全Mipへ反映される。未露出HDRも保持する。
   for(let i=0;i<constant.length;i+=4)constant.set([0x4000,0x4400,0x4800,0x3c00],i);
   device.queue.writeTexture({texture:source},constant,{bytesPerRow:2048},[256,256]);
@@ -71,7 +92,7 @@ button.onclick=async()=>{
   for(let i=0;i<45;i++)for(let c=0;c<3;c++)maxSeam=Math.max(maxSeam,Math.abs(seamData[i*8+c]-seamData[i*8+4+c]));read.unmap();
   if(maxSeam>0.01)throw Error('Octahedralの継ぎ目が不連続: '+maxSeam);
   const error=await device.popErrorScope();if(error)throw Error(error.message);
-  output.textContent='PASS\n全5Mipで一様HDR天空を保存・更新\nBRDF LUT有限・非負・エネルギー値域\n全Mipのボーダーが隣接面の内部値と完全一致\nハードウェア・トリリニア1参照の継ぎ目差='+maxSeam+'\nWebGPU validation errorなし';
+  output.textContent='PASS\n全5Mipで一様HDR天空を保存・更新\nBRDF LUT有限・非負・エネルギー値域\n非金属の9条件で白色天空の収支一致・粗い面の斜め視点でDiffuse保持\n全Mipのボーダーが隣接面の内部値と完全一致\nハードウェア・トリリニア1参照の継ぎ目差='+maxSeam+'\nWebGPU validation errorなし';
  }catch(error){output.textContent='FAIL: '+error.message;}finally{environment?.dispose();resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
 };
 </script>

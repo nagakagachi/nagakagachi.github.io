@@ -90,11 +90,13 @@ button.onclick = async () => {
         const color=texture({size:[256,256],format:colorFormat,usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});
         const lighting=new Float32Array(116); lighting.set(lightVP);lighting.set([...light,3],16);
         // 比較フィルタのテクセル内深度差を越える、約0.5m相当の受け手バイアス。
-        lighting.set([1,0.001,0,1/1024],20);lighting.set([0,1,0.16,0],24);
+        lighting.set([1,0.001,0,1/1024],20);lighting.set([0,1,0,0],24);
         if(version === 'v02'){lighting.set([0,1000000,0,1],32);lighting.set([0,2000,0,0],36);}
         for(let i=0;i<4;i++)lighting.set(lightVP,40+i*16);
         lighting.set([128,256,512,1024],104);lighting.set([0,0,-1,0],108);lighting.set([0.45,0,0,0],112);
-        const dummy=texture({size:[1,1],format:'rgba16float',usage:GPUTextureUsage.TEXTURE_BINDING});
+        const dummy=texture({size:[1,1],format:'rgba16float',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+        // Diffuse用の既知の積分反射率はF0。Specular表示はこの検証ではOFF。
+        device.queue.writeTexture({texture:dummy},new Uint16Array([0x3c00,0,0,0x3c00]),{bytesPerRow:8},[1,1]);
         const lightBuffer=buffer(lighting.byteLength,GPUBufferUsage.UNIFORM,lighting);
         const cameraBuffer=buffer(16,GPUBufferUsage.UNIFORM,new Float32Array([1,1,1,1]));
         const shData=new Float32Array(hdr?36:16);
@@ -200,6 +202,21 @@ button.onclick = async () => {
             device.queue.writeBuffer(main.uniform,55*4,new Float32Array([0]));
             device.queue.writeBuffer(main.uniform,51*4,new Float32Array([0]));
         }
+        // CSMの実投影を使い、格子OFF/ONと間隔変更が描画へ反映されることを確認する。
+        lighting[115]=1;
+        const csmColor=await render(true);
+        const grids=[];
+        for(const step of [4,16]) {
+            lighting[26]=step;
+            const image=await render(true);
+            let darker=0;
+            for(let i=0;i<image.length;i+=4)if(image[i]<csmColor[i]-1)darker++;
+            if(darker<100)throw Error('CSMテクセル格子が描画されません: '+step);
+            grids.push(image);
+        }
+        if(!grids[0].some((v,i)=>Math.abs(v-grids[1][i])>1))throw Error('CSM格子の間隔変更が反映されません');
+        lighting[26]=0;lighting[115]=0;
+        await render(true);
         const visibilityRead=buffer(12840,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
         const visibilityEncoder=device.createCommandEncoder();
         visibilityEncoder.copyBufferToBuffer(main.args,0,visibilityRead,0,20);
@@ -245,7 +262,7 @@ button.onclick = async () => {
         await atlasRead.mapAsync(GPUMapMode.READ);const atlasPixels=new Uint8Array(atlasRead.getMappedRange());
         for(let y=0;y<256;y++)for(let x=0;x<256;x++)if(atlasPixels[(y*256+x)*4]!==((Math.floor(x/64)%2)*255))throw Error('Atlasの隣接カスケードからPCFが漏れています');atlasRead.unmap();
         const error=await device.popErrorScope();if(error){throw Error(error.message);}
-        output.textContent=`PASS\n全65,536画素でZPrePass/Forward Equalの被覆一致\n稜線の光源側=${lit}、遮蔽側=${shade}（0〜255）\nMain=${mainCount} / Shadow=${shadowCount} / メイン視野外キャスター=${offscreen.length}件\nSkyLightのみ: 受光側=${skyLit} / 遮蔽側=${skyShade} / 強度0で両方0\n固定RGBアルベド白・灰・黒・有彩色の一様天空テスト成功（v02）\nAtlas全4段・四隅の5×5 PCF漏れなし\n実シェーダー・独立カリング・3 Passを使用 / WebGPU validation errorなし`;
+        output.textContent=`PASS\n全65,536画素でZPrePass/Forward Equalの被覆一致\n稜線の光源側=${lit}、遮蔽側=${shade}（0〜255）\nMain=${mainCount} / Shadow=${shadowCount} / メイン視野外キャスター=${offscreen.length}件\nSkyLightのみ: 受光側=${skyLit} / 遮蔽側=${skyShade} / 強度0で両方0\n固定RGBアルベド白・灰・黒・有彩色の一様天空テスト成功（v02）\nAtlas全4段・四隅の5×5 PCF漏れなし\nCSMテクセル格子のON/OFF・4/16間隔変更成功\n実シェーダー・独立カリング・3 Passを使用 / WebGPU validation errorなし`;
     }catch(error){output.textContent='FAIL: '+error.message;}
     finally{resources.forEach(r=>r.destroy());device?.destroy();button.disabled=false;}
 };

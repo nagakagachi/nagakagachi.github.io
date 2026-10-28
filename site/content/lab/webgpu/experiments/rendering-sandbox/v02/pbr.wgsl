@@ -24,3 +24,9 @@ fn directBRDF(n: vec3f, v: vec3f, l: vec3f, albedo: vec3f, roughness: f32, metal
     let diffuse=(vec3f(1.0)-f)*(1.0-metallic)*albedo/PBR_PI;
     return (diffuse+specular)*noL;
 }
+
+// Split-Sum LUTで積分した鏡面反射率。Diffuse側も同じ積分値で減衰する。
+// マクロ法線のSchlick(NoV)を代用すると、粗い面でも斜め視点のDiffuseが消える。
+fn iblSpecularReflectance(f0: vec3f, dfg: vec2f) -> vec3f {
+    return clamp(f0 * dfg.x + dfg.y, vec3f(0.0), vec3f(1.0));
+}
