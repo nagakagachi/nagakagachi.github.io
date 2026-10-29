@@ -55,3 +55,27 @@ test('カメラ回転で各カスケードの投影スケールが変わらな�
  }
  scales.forEach(value=>assert.deepEqual(value,scales[0]));
 });
+
+const { mainViewProjection, frustumPlanes, shadowMatrix } = await import('../site/content/lab/webgpu/experiments/rendering-sandbox/v02/render-math.ts');
+test('メインビューの無限遠Reversed Zと遠方面のカリングが整合する', () => {
+ const m = mainViewProjection([0, 0, 0], 0, 0, Math.PI / 3, 1.7);
+ const planes = frustumPlanes(m);
+ for (const distance of [1, 10, 1000, 1e9]) {
+  const p = [0, 0, -distance, 1];
+  const clip = [0,1,2,3].map(row => p.reduce((sum,v,col) => sum + v*m[col*4+row],0));
+  assert.ok(Math.abs(clip[2]/clip[3] - 1/distance) < 1e-8);
+  for(let i=0;i<6;i++) assert.ok(p.reduce((sum,v,j)=>sum+v*planes[i*4+j],0)>=0);
+ }
+ assert.equal(planes[16],0);assert.equal(planes[17],0);assert.equal(planes[18],0);assert.equal(planes[19],1);
+ const p=[0,0,-0.5,1];
+ assert.ok(p.reduce((sum,v,j)=>sum+v*planes[20+j],0)<0);
+});
+test('シャドウ正射影も光源側が1、遠方側が0のReversed Zである', () => {
+ const light=lightDirection(60,30),range=500;
+ const m=shadowMatrix([0,0,0],light,100,range,1024);
+ for(const sign of [-1,1]) {
+  const p=light.map(v=>v*range*sign);
+  const z=m[2]*p[0]+m[6]*p[1]+m[10]*p[2]+m[14];
+  assert.ok(Math.abs(z-(sign+1)/2)<1e-6);
+ }
+});

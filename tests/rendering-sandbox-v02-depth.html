@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8"><title>v02 深度表示のGPU検証</title>
+<style>body{background:#152127;color:#e1e7e7;font:16px monospace;padding:24px}pre{white-space:pre-wrap}</style>
+<button id="run">実行</button><pre id="result">未実行</pre>
+<script type="module">
+const output=document.querySelector('#result');
+document.querySelector('#run').onclick=async()=>{
+ let device,debug;const resources=[];
+ try {
+  const root='/lab/webgpu/experiments/rendering-sandbox/v02/';
+  const {DepthDebug}=await import(root+'depth-debug.js');
+  device=await(await navigator.gpu.requestAdapter()).requestDevice();device.pushErrorScope('validation');
+  const module=device.createShaderModule({code:await(await fetch(root+'depth-debug.wgsl')).text()});
+  const texture=(descriptor)=>{const t=device.createTexture(descriptor);resources.push(t);return t;};
+  const source=texture({size:[4,4],format:'depth32float',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.TEXTURE_BINDING});
+  // 左上・右上・左下・右下の深度を0、0.25、0.5、1にする。
+  const fill=device.createShaderModule({code:`
+  @vertex fn v(@builtin(vertex_index) id:u32)->@builtin(position) vec4f {
+   let p=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3))[id];return vec4f(p,0,1);
+  }`});
+  const pipeline=await device.createRenderPipelineAsync({layout:'auto',vertex:{module:fill,entryPoint:'v'},depthStencil:{format:'depth32float',depthWriteEnabled:true,depthCompare:'always'}});
+  const e=device.createCommandEncoder(),pass=e.beginRenderPass({colorAttachments:[],depthStencilAttachment:{view:source.createView(),depthClearValue:0,depthLoadOp:'clear',depthStoreOp:'store'}});
+  pass.setPipeline(pipeline);
+  for(let i=0;i<4;i++){const z=[0,0.25,0.5,1][i];pass.setViewport((i%2)*2,Math.floor(i/2)*2,2,2,z,z);pass.draw(3);}pass.end();
+  device.queue.submit([e.finish()]);
+  const target=texture({size:[256,256],format:'rgba8unorm',usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});
+  debug=await DepthDebug.create(device,module,source.createView(),source.createView(),'rgba8unorm');
+  const read=device.createBuffer({size:256*256*4,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});resources.push(read);
+  async function render(atlas,linear=false,distance=1000){
+   const encoder=device.createCommandEncoder();debug.encodeMain(encoder,target.createView(),linear,distance);
+   if(atlas)debug.encodeShadow(encoder,target.createView(),256,256,0);
+   encoder.copyTextureToBuffer({texture:target},{buffer:read,bytesPerRow:1024},[256,256]);device.queue.submit([encoder.finish()]);
+   await read.mapAsync(GPUMapMode.READ);const pixels=new Uint8Array(read.getMappedRange()).slice();read.unmap();return pixels;
+  }
+  const image=await render(false);
+  for(let y=0;y<256;y++)for(let x=0;x<256;x++){
+   const expected=[0,64,128,255][Math.floor(y/128)*2+Math.floor(x/128)];
+   for(let c=0;c<3;c++)if(Math.abs(image[(y*256+x)*4+c]-expected)>1)throw Error('全画面深度の値または上下方向が不正: '+x+','+y+' actual='+image[(y*256+x)*4+c]+' expected='+expected);
+  }
+  const atlas=await render(true);
+  for(let i=0;i<4;i++){
+   const x=12+(i%2)*96+48,y=12+Math.floor(i/2)*96+48;
+   if(Math.abs(atlas[(y*256+x)*4]-[0,64,128,255][i])>1)throw Error('Atlasの深度表示が不正');
+  }
+  if(atlas[(250*256+250)*4]!==255)throw Error('Atlas表示が小窓外を上書き');
+  // 同じフレームのLinearDepth表示でも、AtlasはRawDepthのまま参照する。
+  for(const distance of [10,20]) {
+   const linear=await render(false,true,distance);
+   const expected=[255,Math.round(4/distance*255),Math.round(2/distance*255),Math.round(1/distance*255)];
+   for(let y=0;y<256;y++)for(let x=0;x<256;x++) {
+    const quadrant=Math.floor(y/128)*2+Math.floor(x/128);
+    if(Math.abs(linear[(y*256+x)*4]-expected[quadrant])>1)throw Error('LinearDepthの復元または正規化距離が不正');
+   }
+  }
+  const combined=await render(true,true,10);
+  for(let i=0;i<4;i++) {
+   const x=12+(i%2)*96+48,y=12+Math.floor(i/2)*96+48;
+   if(Math.abs(combined[(y*256+x)*4]-[0,64,128,255][i])>1)throw Error('CSMにLinearDepthの変換が混入');
+  }
+  const error=await device.popErrorScope();if(error)throw Error(error.message);
+  output.textContent='PASS\nRawDepth 0/0.25/0.5/1を露出・トーンマッピングなしで表示\n全65,536画素の値・上下方向が一致（8bit丸め誤差±1以内）\nシャドウAtlasの小窓表示・小窓外の保持を確認\nLinearDepthの距離復元・正規化距離変更・空の白表示を確認\nCSMはLinearDepthと併用してもRawDepthのまま\nWebGPU validation errorなし';
+ }catch(error){output.textContent='FAIL: '+error.message;}finally{debug?.dispose();resources.forEach(r=>r.destroy());device?.destroy();}
+};
+</script>

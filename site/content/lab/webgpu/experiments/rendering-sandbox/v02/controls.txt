@@ -39,6 +39,9 @@
 <label class="parameter"><span>SkyLight強度</span><input id="gpu-sky-intensity" type="range" min="0" max="2" step="0.05" value="1"><output id="gpu-sky-intensity-value">1</output></label>
 </details>
 <details class="sandbox-panel"><summary>デバッグ</summary>
+<label class="parameter"><span>メインビュー表示</span><select id="gpu-view-mode"><option value="shading">シェーディング</option><option value="depth">RawDepth（Reversed Z）</option><option value="linear-depth">LinearDepth（正規化）</option></select></label>
+<label class="parameter"><span>LinearDepth正規化距離</span><input id="gpu-linear-depth-distance" type="range" min="10" max="16000" step="10" value="1000"><output id="gpu-linear-depth-distance-value">1000 m</output></label>
+<label class="check"><input id="gpu-shadow-map" type="checkbox"> シャドウAtlas（RawDepth）</label>
 <label class="check"><input id="gpu-csm-colors" type="checkbox"> CSM色分け</label>
 <label class="check"><input id="gpu-csm-grid" type="checkbox"> CSMテクセルグリッド</label>
 <label class="parameter"><span>CSMグリッド間隔</span><select id="gpu-csm-grid-step"><option value="1">1テクセル</option><option value="4">4テクセル</option><option value="16" selected>16テクセル</option></select></label>

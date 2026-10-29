@@ -36,7 +36,7 @@ export class SkyEnvironment implements BackgroundRenderable {
 
     static async create(device: GPUDevice, modules: SkyModules, format: GPUTextureFormat, cameraBuffer: GPUBuffer): Promise<SkyEnvironment> {
         const generate = await device.createComputePipelineAsync({ label: 'Sky Octahedral生成', layout: 'auto', compute: { module: modules.generate, entryPoint: 'generateSky' } });
-        const project = await device.createComputePipelineAsync({ label: 'Sky SH局所投影', layout: 'auto', compute: { module: modules.project, entryPoint: 'projectSky' } });
+        const project = await device.createComputePipelineAsync({ label: 'Sky SH投影（ワークグループごとに集計）', layout: 'auto', compute: { module: modules.project, entryPoint: 'projectSky' } });
         const reduce = await device.createComputePipelineAsync({ label: 'Sky SH最終集約', layout: 'auto', compute: { module: modules.reduce, entryPoint: 'reduceSky' } });
         const render = await device.createRenderPipelineAsync({ label: 'Skyピクセルレイ', layout: 'auto',
             vertex: { module: modules.render, entryPoint: 'skyVertex' },
@@ -53,7 +53,7 @@ export class SkyEnvironment implements BackgroundRenderable {
             usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC });
         this.coefficients = device.createBuffer({ label: 'Sky 2次SH 9係数RGB', size: SKY_SH_COEFFICIENTS * 16,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_SRC });
-        this.partials = device.createBuffer({ label: 'Sky SH局所和', size: SKY_GROUPS * SKY_SH_COEFFICIENTS * 16, usage: GPUBufferUsage.STORAGE });
+        this.partials = device.createBuffer({ label: 'Sky SH投影の中間集計バッファ', size: SKY_GROUPS * SKY_SH_COEFFICIENTS * 16, usage: GPUBufferUsage.STORAGE });
         this.parameters = device.createBuffer({ label: 'Sky生成条件', size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         this.view = device.createBuffer({ label: 'Skyピクセルレイの基底', size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         this.generateGroup = device.createBindGroup({ layout: pipelines.generate.getBindGroupLayout(0), entries: [
@@ -75,7 +75,7 @@ export class SkyEnvironment implements BackgroundRenderable {
         const changed = this.previousAltitude !== observerAltitude || !this.previousLight || light.some((value, i) => value !== this.previousLight?.[i]);
         if (!changed) { return false; }
         this.device.queue.writeBuffer(this.parameters, 0, new Float32Array([...light, 0, observerAltitude, 0, 0, 0]));
-        // 各段の依存をCompute Pass境界で区切る。係数のCPU読戻しやグローバルAtomicは不要。
+        // 各段の依存をCompute Pass境界で区切る。係数のCPUへの読み戻しやグローバルAtomicは不要。
         const generate = encoder.beginComputePass({ label: 'SkyOctahedralPass' });
         generate.setPipeline(this.pipelines.generate);
         generate.setBindGroup(0, this.generateGroup);

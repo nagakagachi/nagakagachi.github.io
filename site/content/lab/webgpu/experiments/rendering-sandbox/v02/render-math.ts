@@ -58,3 +58,13 @@ export function skyRayFrame(yaw: number, pitch: number, aspect: number, vertical
         -sy * sp * tangent, cp * tangent, -cy * sp * tangent, 0
     ]);
 }
+
+// 右手系、near=1m、far=無限遠。NDC深度は視点空間の前方距離dに対して1/dとなる。
+export function mainViewProjection(eye: Vec3, yaw: number, pitch: number, fov: number, aspect: number): Float32Array<ArrayBuffer> {
+    const z: Vec3 = [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)];
+    const raw = cross([0, 1, 0], z), length = Math.hypot(...raw);
+    const x: Vec3 = [raw[0] / length, raw[1] / length, raw[2] / length], y = cross(z, x);
+    const f = 1 / Math.tan(fov / 2), sx = f / aspect;
+    return new Float32Array([x[0] * sx, y[0] * f, 0, -z[0], x[1] * sx, y[1] * f, 0, -z[1],
+        x[2] * sx, y[2] * f, 0, -z[2], -dot(x, eye) * sx, -dot(y, eye) * f, 1, dot(z, eye)]);
+}
