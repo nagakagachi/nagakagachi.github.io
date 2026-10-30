@@ -1,7 +1,7 @@
 ﻿---
 title: "RenderingSandbox v02"
 date: "2026-10-28"
-lastmod: "2026-10-29"
+lastmod: "2026-10-31"
 layout: "sandbox"
 outputs: ["HTML", "Source"]
 description: "4カスケードのシャドウAtlas、GGX・Lambert、Octahedral MapによるSplit-Sum IBLの検証"
@@ -58,13 +58,23 @@ Shadow Mapは2048×2048の`depth32float`を1枚、容量16 MiBです。2×2に�
 
 各カスケードの距離範囲の末尾10%は隣のカスケードもサンプリングしてブレンドします。次のカスケードの投影範囲にも、このブレンド領域を含めます。PCFは1・3×3・5×5を選べます。各サンプルのUVを、対象カスケードの領域の端から半テクセル内側までに制限し、Atlasの隣の領域を参照しません。
 
-### シャドウキャスターのカリング
+### ShadowCasterVolumeCulling
 
-採用したのは、**光源の正射影フラスタムと、受光フラスタムを光源方向へ押し出した凸多面体の両方の条件を使い、GPUでタイルのAABBを判定する方式**です。
+ShadowCasterVolumeCullingを使用しています。受光フラスタムを光源方向へ押し出したShadow Caster Volumeを求め、その体積と光源の正射影フラスタムの両方に対して、GPUでタイルのAABBを判定します。
 
 メイン視点の可視リストをシャドウへ流用すると、画面外から入る影が消えます。一方、球を囲む光源ボックスだけでは、受光領域へ影を落とせないタイルも残ります。そこで分割ごとの受光フラスタムから、光源側へ押し出しても有効な面とシルエット辺の側面を求め、追加のカリング平面として渡します。光源側へ伸びる体積を使うので、メインビューでは見えないキャスターも残します。
 
-CPUは分割と少数の平面だけを準備します。候補タイルの可視判定・リスト圧縮・Indirect引数の更新はGPUです。MainとCSM0〜3はそれぞれ独立した752 BのScene Uniform、6,400 Bの可視リスト、20 BのIndirect引数を持ちます。同じUniformをdispatch間で上書きしません。
+![1カスケードを上から見た模式図。緑は受光フラスタムを光源方向へ押し出した領域。視野外のAは影が届くため残し、光源フラスタム内のBは影が届かないため除外する](shadow-caster-volume-culling.svg)
+
+*光源フラスタムとShadow Caster Volumeの両方に対してタイルを判定します。図の矢印は光の進行方向で、体積を押し出す方向はその逆です。実装はタイルのAABBで保守的に判定するため、境界にかかるタイルは残ります。*
+
+分割したメインビューのフラスタムの6面を光源方向に対して分類し、残す面と除去する面の共有辺だけから側面を生成します。面と辺の接続関係は固定表で持ち、12辺のうちシルエット辺だけを処理します。以前の28頂点ペア・56三角組の候補列挙、全頂点による支持平面判定、重複平面の探索を省きました。これはCPU側の構築処理の削減です。同じ体積を表すため、GPUのタイル判定数や描画タイル数を減らすための変更ではありません。Hutchinson氏の解説とAaltonen氏の2023年の投稿にある、元の面とシルエット辺からキャスター体積を構成する方式に相当します。コードをそのまま移植したものではありません。
+
+「フラスタムカリング」と「ShadowCasterVolumeCulling」は独立してON/OFFできます。追加カリングの効果を比べる場合はフラスタムカリングをONに保ち、ShadowCasterVolumeCullingだけを切り替えます。「メトリクス」の実行状況に、CSM0〜3それぞれの描画タイル数と4段合計を表示します。カリング・配置の固定中は設定を変更できないため、比較するときは固定を解除し、カメラと光源を動かさずに切り替えてください。
+
+Atlas内でタイル単位の未描画領域が見えるのは、光源フラスタム内でも受光範囲へ影を落とせないタイルを除外するためです。ON/OFFで変わるタイル数は追加カリングによる描画削減を示し、CPUの構築方法の変更による処理時間の短縮を示すものではありません。
+
+CPUは分割とカリング平面を準備します。候補タイルの可視判定・リスト圧縮・Indirect引数の更新はGPUです。MainとCSM0〜3はそれぞれ独立した752 BのScene Uniform、6,400 Bの可視リスト、20 BのIndirect引数を持ちます。同じUniformをdispatch間で上書きしません。
 
 可視タイル数をsubgroup内で集計し、非空subgroupごとに1回だけグローバルAtomicAddで領域を予約します。subgroup非対応時はworkgroupの共有メモリscanで集約します。描画数のCPU読み戻しを待つことはなく、非同期読み戻しはメトリクス表示だけに使います。
 
@@ -186,6 +196,8 @@ v00・v01の実行資源は変更せず、それぞれの版のフォルダで�
 
 ## 参考資料
 
+- [Luke Hutchinson — Shadow Caster Volumes For The Culling Of Potential Shadow Casters](https://gamedev.net/tutorials/programming/general-and-gameplay-programming/shadow-caster-volumes-for-the-culling-of-potential-shadow-casters-r2330)：受光領域からキャスターの候補体積を構成する考え方。Directional Lightで残すフラスタム面とシルエット辺から側面を作る方法。一般凸多面体のLUPによる頂点復元は本版では使用しません
+- [Sebastian Aaltonen — Shadow cullingの説明（2023-10-26）](https://x.com/SebAaltonen/status/1717455941551919261)：光源から見た奥側の面とシルエット辺を使うカリング。[投稿の転載](https://threadreaderapp.com/thread/1717455941551919261.html)も参照可能。2026年の投稿は内部手順の詳細を説明していないため、ここでは構築方法を説明した2023年の投稿を挙げています
 - [Microsoft — Cascaded Shadow Maps](https://learn.microsoft.com/en-us/windows/win32/dxtecharts/cascaded-shadow-maps)：分割、安定化、Atlas、PCF境界処理の基礎
 - [AMD GPUOpen — Optimizing Terrain Shadows](https://gpuopen.com/learn/optimizing-terrain-shadows/)：地形シャドウの不要描画削減を検討する際の参考。本版に同資料の地形遮蔽方式を実装したという意味ではありません
 - [Filament — Image Based Lights](https://google.github.io/filament/Filament.html#lighting/imagebasedlights)：Prefilter環境とBRDF積分の分離。材質モデルや全補償項をFilamentと一致させた実装ではありません

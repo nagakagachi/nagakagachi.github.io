@@ -232,12 +232,21 @@ button.onclick = async () => {
         if(!offscreen.length){throw Error('メイン視野外のキャスターがシャドウリストに残っていません');}
         // 追加の受光押出し平面がGPUの可視リストへ反映され、Mainへ混入しないことを確認。
         device.queue.writeBuffer(shadow.uniform,480,new Float32Array([1,0,0,-32]));
-        device.queue.writeBuffer(shadow.uniform,736,new Uint32Array([1,0,0,0]));
+        device.queue.writeBuffer(shadow.uniform,736,new Uint32Array([1,1,0,0]));
         await render(true);
         const planeRead=buffer(40,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST),planeEncoder=device.createCommandEncoder();
         planeEncoder.copyBufferToBuffer(main.args,0,planeRead,0,20);planeEncoder.copyBufferToBuffer(shadow.args,0,planeRead,20,20);device.queue.submit([planeEncoder.finish()]);
         await planeRead.mapAsync(GPUMapMode.READ);const planeCounts=new Uint32Array(planeRead.getMappedRange());
-        if(planeCounts[1]!==mainCount||!(planeCounts[6]>0&&planeCounts[6]<shadowCount))throw Error('GPUのキャスター体積カリングが不正');planeRead.unmap();
+        if(planeCounts[1]!==mainCount||!(planeCounts[6]>0&&planeCounts[6]<shadowCount))throw Error('GPUのShadowCasterVolumeCullingが不正');planeRead.unmap();
+        // 平面数・光源フラスタムを変えず、独立した有効フラグだけをOFFにする。
+        device.queue.writeBuffer(shadow.uniform,740,new Uint32Array([0]));
+        await render(true);
+        const disabledEncoder=device.createCommandEncoder();
+        disabledEncoder.copyBufferToBuffer(main.args,0,planeRead,0,20);
+        disabledEncoder.copyBufferToBuffer(shadow.args,0,planeRead,20,20);device.queue.submit([disabledEncoder.finish()]);
+        await planeRead.mapAsync(GPUMapMode.READ);const disabledCounts=new Uint32Array(planeRead.getMappedRange());
+        if(disabledCounts[1]!==mainCount||disabledCounts[6]!==shadowCount)throw Error('ShadowCasterVolumeCullingの単独OFFが不正');
+        planeRead.unmap();
         device.queue.writeBuffer(shadow.uniform,736,new Uint32Array([0,0,0,0]));
         // Atlasの隣接領域に反対の遮蔽値を入れ、全4段の四隅を5×5 PCFで検査する。
         const identity=new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);

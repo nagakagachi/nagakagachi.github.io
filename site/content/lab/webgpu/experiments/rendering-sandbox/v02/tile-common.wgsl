@@ -9,8 +9,8 @@ struct Scene {
     layoutInfo: vec4u, // 密度、LOD段数、候補数、カリング有効フラグ。
     cascades: array<vec4f, 8>, // 原点X/Z、セル間隔、段の半幅。
     heightWindows: array<vec4i, 7>, // 各標高窓の世界格子原点X/Z、予約、予約。
-    casterPlanes: array<vec4f, 16>, // 受光フラスタムを光源方向へ押し出した凸体。
-    casterInfo: vec4u, // 有効平面数、予約。
+    shadowCasterVolumePlanes: array<vec4f, 16>, // ShadowCasterVolumeCullingの追加平面。
+    shadowCasterVolumeInfo: vec4u, // ShadowCasterVolumeCullingの平面数、有効フラグ、予約、予約。
 }
 @group(0) @binding(0) var<uniform> scene: Scene;
 

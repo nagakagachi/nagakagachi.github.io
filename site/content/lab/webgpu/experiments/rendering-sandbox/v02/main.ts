@@ -62,6 +62,7 @@ const tileColors = element('#gpu-tile-colors', HTMLInputElement);
 const heightCascades = element('#gpu-height-cascades', HTMLInputElement);
 const heightGrid = element('#gpu-height-grid', HTMLInputElement);
 const culling = element('#gpu-culling', HTMLInputElement);
+const shadowCasterVolumeCulling = element('#gpu-shadow-caster-volume-culling', HTMLInputElement);
 const freeze = element('#gpu-freeze', HTMLInputElement);
 const density = element('#gpu-density', HTMLSelectElement);
 const radius = element('#gpu-radius', HTMLSelectElement);
@@ -100,7 +101,7 @@ const depthBias = element('#gpu-depth-bias', HTMLInputElement);
 const normalBias = element('#gpu-normal-bias', HTMLInputElement);
 const pcf = element('#gpu-pcf', HTMLSelectElement);
 const compaction = element('#gpu-compaction', HTMLSelectElement);
-const layoutControls = [snapGrid, culling, density, radius, compaction, seedInput, amplitudeInput, scaleInput, regenerate, shadows, azimuth, elevation, shadowWidth, depthBias, normalBias, pcf];
+const layoutControls = [snapGrid, culling, shadowCasterVolumeCulling, density, radius, compaction, seedInput, amplitudeInput, scaleInput, regenerate, shadows, azimuth, elevation, shadowWidth, depthBias, normalBias, pcf];
 const speed = element('#gpu-speed', HTMLInputElement);
 const speedValue = element('#gpu-speed-value', HTMLOutputElement);
 const cameraValue = element('#gpu-camera-value', HTMLOutputElement);
@@ -568,7 +569,9 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
         const compactInfo = detail(configuration, '可視リスト集約', '');
         const layoutInfo = detail(configuration, 'メッシュLOD', '');
         const mainCountInfo = detail(activity, 'Main 可視タイル', 'GPU結果を取得中');
-        const shadowCountInfo = detail(activity, 'Shadow 可視タイル', 'GPU結果を取得中');
+        const shadowCountInfo = detail(activity, 'Shadow 描画タイル合計', 'GPU結果を取得中');
+        const cascadeCountInfos = shadowViews.map((_, i) => detail(activity, `CSM${i} 描画タイル`, 'GPU結果を取得中'));
+        const volumeCullingInfo = detail(activity, 'ShadowCasterVolumeCulling', '');
         const updateInfo = detail(activity, '配置・カリング更新', '');
         detail(configuration, 'GPU', adapter.info.description || adapter.info.device || 'ブラウザから機種名は提供されていません');
         function draw(): void {
@@ -596,8 +599,9 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
                 mainView.settings.set(frustumPlanes(matrix),16);
                 shadowViews.forEach((view,i)=>{
                     view.settings.set(frustumPlanes(cascades[i].matrix),16);
-                    view.settings.fill(0,120);view.settings.set(cascades[i].planes,120);
-                    new Uint32Array(view.settings.buffer)[184]=cascades[i].planes.length/4;
+                    view.settings.fill(0,120);view.settings.set(cascades[i].shadowCasterVolumePlanes,120);
+                    new Uint32Array(view.settings.buffer)[184]=cascades[i].shadowCasterVolumePlanes.length/4;
+                    new Uint32Array(view.settings.buffer)[185]=Number(shadowCasterVolumeCulling.checked);
                 });
             }
             const skyChanged = environment.encode(encoder, light, camera.yaw, camera.pitch, canvas.width / canvas.height, Math.max(camera.position[1] + ATMOSPHERE_REFERENCE_ALTITUDE, 2), frameCamera.verticalFov);
@@ -646,7 +650,7 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
                 updateDetail(compactInfo, compute === subgroupCompute ? 'subgroup集約 / 非空subgroupごとに1 AtomicAdd' : 'workgroup共有メモリscan / 非空workgroupごとに1 AtomicAdd');
                 encoder.clearBuffer(mainView.indirect, 4, 4);
                 shadowViews.forEach(view=>encoder.clearBuffer(view.indirect,4,4));
-                const pass = encoder.beginComputePass({ label: 'Main/Shadow フラスタムカリング' });
+                const pass = encoder.beginComputePass({ label: 'Frustum Culling + ShadowCasterVolumeCulling' });
                 pass.setPipeline(compute);
                 pass.setBindGroup(0, mainComputeGroup);
                 pass.dispatchWorkgroups(Math.ceil(layout.count / 64));
@@ -691,12 +695,13 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
                     const values = new Uint32Array(readback.getMappedRange());
                     const count = values[1];
                     const shadowCounts=shadowViews.map((_,i)=>values[6+i*5]);
-                    const shadowCount=shadowCounts.join('/');
+                    const shadowCount=shadowCounts.reduce((sum, count) => sum + count, 0);
                     readback.unmap();
                     pending = false;
                     if (!disposed && revision === updates) {
                         updateDetail(mainCountInfo, `${count} / 候補 ${candidates} タイル`);
-                        updateDetail(shadowCountInfo, shadows.checked ? `${shadowCount} / 候補 ${candidates} タイル` : 'OFF（描画なし）');
+                        updateDetail(shadowCountInfo, shadows.checked ? `${shadowCount} / 候補 ${candidates * 4} タイル（4カスケード合計）` : 'OFF（描画なし）');
+                        cascadeCountInfos.forEach((node, i) => updateDetail(node, shadows.checked ? `${shadowCounts[i]} / ${candidates} タイル` : 'OFF'));
                     }
                     else if (!disposed) {
                         scheduleDraw();
@@ -710,6 +715,7 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
             updateDetail(layoutInfo, `${layout.levels}段 / セル ${layout.steps.join('・')} m / 半径 ${radius.value} m / 外周半幅 ${layout.radius} m`);
             updateDetail(skyInfo, `地球・単一散乱 / 観測高度 ${(Math.max(camera.position[1] + ATMOSPHERE_REFERENCE_ALTITUDE, 2)).toFixed(0)} m / 2次SH / 強度 ${skyIntensity.value}`);
             updateDetail(shadowInfo, `2048² Atlas / 1024²×4 / 16 MiB / 距離 ${shadowWidth.value}m / Reversed Z / ${shadows.checked ? 'ON' : 'OFF'}`);
+            updateDetail(volumeCullingInfo, `${shadowCasterVolumeCulling.checked ? 'ON' : 'OFF'} / 光源フラスタム ${culling.checked ? 'ON' : 'OFF'}`);
             updateDetail(updateInfo, `#${updates} / ${freeze.checked ? 'フリーズ中（標高キャッシュも固定）' : 'カメラ追従中'}`);
         }
         status.textContent = 'FP16 Height ClipmapをComputeで生成しています';
@@ -767,7 +773,7 @@ start.addEventListener('click', async () => {
     }
 });
 resetCamera.addEventListener('click', () => { clearInput(); camera = defaultCamera(); scheduleDraw(); });
-for (const control of [wireframe, snapGrid, showNormals, tileColors, culling, density, radius, compaction, shadows, shadowMask, azimuth, elevation, shadowWidth, depthBias, normalBias, pcf, aerial, showSkyMap, directLight, heightCascades, heightGrid, specularIBL, animateSun, csmColors, csmGrid, csmGridStep, showSpecularMap, viewMode, showShadowMap]) {
+for (const control of [wireframe, snapGrid, showNormals, tileColors, culling, shadowCasterVolumeCulling, density, radius, compaction, shadows, shadowMask, azimuth, elevation, shadowWidth, depthBias, normalBias, pcf, aerial, showSkyMap, directLight, heightCascades, heightGrid, specularIBL, animateSun, csmColors, csmGrid, csmGridStep, showSpecularMap, viewMode, showShadowMap]) {
     control.addEventListener('change', scheduleDraw);
 }
 animateSun.addEventListener('change',()=>{animatedAzimuth=Number(azimuth.value);});

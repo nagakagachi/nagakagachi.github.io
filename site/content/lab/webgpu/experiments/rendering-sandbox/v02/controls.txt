@@ -1,5 +1,6 @@
 <details class="sandbox-panel" open><summary>描画</summary>
 <label class="check"><input id="gpu-culling" type="checkbox" checked> フラスタムカリング</label>
+<label class="check"><input id="gpu-shadow-caster-volume-culling" type="checkbox" checked> ShadowCasterVolumeCulling</label>
 <label class="check"><input id="gpu-freeze" type="checkbox"> カリング・配置を固定</label>
 </details>
 <details class="sandbox-panel"><summary>カメラ</summary>

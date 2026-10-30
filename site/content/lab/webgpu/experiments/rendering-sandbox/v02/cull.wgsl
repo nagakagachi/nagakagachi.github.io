@@ -28,10 +28,10 @@ fn tileVisible(id: u32, descriptor: u32) -> bool {
             }
         }
     }
-    if(scene.layoutInfo.w==0u) { return true; }
-    // 光源ボックスだけでは残る、受光領域へ影を落とせない候補を追加で除外する。
-    for(var p=0u;p<scene.casterInfo.x;p++) {
-        let plane=scene.casterPlanes[p];
+    if (scene.shadowCasterVolumeInfo.y == 0u) { return true; }
+    // ShadowCasterVolumeCulling：光源フラスタム内でも、受光範囲に影を落とせない候補を除外する。
+    for(var p=0u;p<scene.shadowCasterVolumeInfo.x;p++) {
+        let plane=scene.shadowCasterVolumePlanes[p];
         if(dot(plane.xyz,center)+plane.w+dot(abs(plane.xyz),extent)<0.0) { return false; }
     }
     return true;

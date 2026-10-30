@@ -3,34 +3,45 @@ import type { Vec3 } from './render-math.js';
 export const CASCADES = 4;
 export const CASCADE_SIZE = 1024;
 export const ATLAS_SIZE = 2048;
-export interface Cascade { matrix: Float32Array<ArrayBuffer>; planes: Float32Array<ArrayBuffer>; split: number; }
+export interface Cascade { matrix: Float32Array<ArrayBuffer>; shadowCasterVolumePlanes: Float32Array<ArrayBuffer>; split: number; }
 const add = (a: Vec3, b: Vec3): Vec3 => [a[0]+b[0],a[1]+b[1],a[2]+b[2]];
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0]-b[0],a[1]-b[1],a[2]-b[2]];
 const mul = (a: Vec3, s: number): Vec3 => [a[0]*s,a[1]*s,a[2]*s];
 const cross = (a: Vec3,b: Vec3): Vec3 => [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
-// 有限受光フラスタムを光源方向へ無限押し出しする凸体。光源正射影の有限Z範囲と交差させる。
-// 面のうち押出方向へ開かないものと、シルエット辺から生じる側面を残す。
-export function casterPlanes(corners: Vec3[], light: Vec3): Float32Array<ArrayBuffer> {
-    const planes: number[][] = [];
-    function accept(raw: Vec3, point: Vec3, sideOnly = false): void {
-        const length = Math.hypot(...raw); if (length < 1e-8) { return; }
-        let n = mul(raw,1/length), d = -dot(n,point);
-        const values = corners.map(p=>dot(n,p)+d);
-        if (Math.min(...values) < -0.001) {
-            if (Math.max(...values) > 0.001) { return; }
-            n=mul(n,-1);d=-d;
-        }
-        if (!sideOnly && dot(n,light)<-1e-6) { return; }
-        if (planes.some(p=>Math.abs(p[0]-n[0])+Math.abs(p[1]-n[1])+Math.abs(p[2]-n[2])<1e-5 && Math.abs(p[3]-d)<0.01)) { return; }
-        planes.push([...n,d]);
+// 頂点順はnear/far × 下/上 × 左/右。各面の3頂点と、各辺に接する2面を固定表で参照する。
+const FRUSTUM_FACES = [[0,2,6], [1,5,7], [0,4,5], [2,3,7], [0,1,3], [4,6,7]] as const;
+const FRUSTUM_EDGES = [
+    [0,1,2,4], [1,3,1,4], [3,2,3,4], [2,0,0,4],
+    [4,5,2,5], [5,7,1,5], [7,6,3,5], [6,4,0,5],
+    [0,4,0,2], [1,5,1,2], [2,6,0,3], [3,7,1,3],
+] as const;
+
+// 分割したメインビューフラスタムの6面・12辺からShadow Caster Volumeを直接構築する。
+// 28頂点ペア・56三角組の列挙、支持平面の全頂点判定、重複平面の探索は行わない。
+export function buildShadowCasterVolumeCullingPlanes(corners: Vec3[], light: Vec3): Float32Array<ArrayBuffer> {
+    const center = mul(corners.reduce((sum, point) => add(sum, point), [0,0,0] as Vec3), 1/8);
+    const faces = FRUSTUM_FACES.map(([a,b,c]) => {
+        const raw = cross(sub(corners[b], corners[a]), sub(corners[c], corners[a]));
+        let n = mul(raw, 1/Math.hypot(...raw));
+        if (dot(n, sub(center, corners[a])) < 0) { n = mul(n, -1); }
+        return { n, d: -dot(n, corners[a]), keep: dot(n, light) >= 0 };
+    });
+    const planes: number[] = [];
+    for (const face of faces) {
+        if (face.keep) { planes.push(...face.n, face.d); }
     }
-    for(let i=0;i<8;i++)for(let j=i+1;j<8;j++) {
-        const edge=sub(corners[j],corners[i]);
-        accept(cross(edge,light),corners[i],true);
-        for(let k=j+1;k<8;k++) { accept(cross(edge,sub(corners[k],corners[i])),corners[i]); }
+    // 残す面と除去する面の共有辺だけがシルエット辺になる。
+    for (const [a,b,first,second] of FRUSTUM_EDGES) {
+        if (faces[first].keep === faces[second].keep) { continue; }
+        const raw = cross(sub(corners[b], corners[a]), light);
+        const length = Math.hypot(...raw);
+        if (length < 1e-8) { continue; }
+        let n = mul(raw, 1/length);
+        if (dot(n, sub(center, corners[a])) < 0) { n = mul(n, -1); }
+        planes.push(...n, -dot(n, corners[a]));
     }
-    if(planes.length>16) { throw new Error('キャスター体積の平面数が上限を超えました'); }
-    return new Float32Array(planes.flat());
+    if (planes.length > 16*4) { throw new Error('ShadowCasterVolumeCullingの平面数が上限を超えました'); }
+    return new Float32Array(planes);
 }
 export function buildCascades(eye: Vec3, yaw: number, pitch: number, fov: number, aspect: number,
     light: Vec3, distance: number, sceneExtent: number): Cascade[] {
@@ -52,6 +63,6 @@ export function buildCascades(eye: Vec3, yaw: number, pitch: number, fov: number
         radius=Math.ceil(radius*16)/16;
         radius*=CASCADE_SIZE/(CASCADE_SIZE-8);
         return {matrix:shadowMatrix(center,light,radius,sceneExtent+Math.abs(dot(light,sub(center,[eye[0],0,eye[2]])))+16,CASCADE_SIZE),
-            planes:casterPlanes(corners,light),split:far};
+            shadowCasterVolumePlanes:buildShadowCasterVolumeCullingPlanes(corners,light),split:far};
     });
 }

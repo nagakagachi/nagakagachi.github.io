@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 560" role="img" aria-labelledby="title desc">
+<title id="title">ShadowCasterVolumeCullingの概念図</title>
+<desc id="desc">上から見た1カスケードの模式図。受光フラスタムを光源方向へ押し出した領域を緑で示す。視野外のAは影が受光範囲へ届くので残す。光源フラスタム内のBは影が届かないため除外する。</desc>
+<defs>
+<marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#c1cbd1"/></marker>
+<marker id="green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#8ad4bd"/></marker>
+<clipPath id="bounds"><rect x="80" y="180" width="740" height="290"/></clipPath>
+</defs>
+<rect width="900" height="560" rx="12" fill="#142126"/>
+<g font-family="sans-serif" font-size="18" fill="#e1e8eb">
+<text x="28" y="38" font-size="21">ShadowCasterVolumeCulling</text>
+<text x="28" y="68" fill="#aabac1">上から見た模式図 / 1カスケード</text>
+<path d="M90 105L230 168" stroke="#c1cbd1" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="90" y="94">光の進行方向</text>
+<g clip-path="url(#bounds)">
+<polygon points="-540,15 -450,-185 -390,-185 510,220 600,420 360,420" fill="#386f63" fill-opacity="0.5" stroke="#8ad4bd" stroke-width="2"/>
+<polygon points="450,220 510,220 600,420 360,420" fill="#3e667e" stroke="#9fcbea" stroke-width="3"/>
+<path d="M360 420L-540 15M510 220L-390 -185" stroke="#8ad4bd" stroke-width="2" stroke-dasharray="8 6"/>
+</g>
+<rect x="80" y="180" width="740" height="290" fill="none" stroke="#9babb5" stroke-width="2" stroke-dasharray="7 6"/>
+<text x="590" y="455" fill="#b4c0c7">光源フラスタムの範囲</text>
+<path d="M480 160L480 207" stroke="#9fcbea" stroke-width="2" marker-end="url(#arrow)"/>
+<circle cx="480" cy="151" r="7" fill="#9fcbea"/>
+<text x="500" y="152">メインカメラ</text>
+<text x="430" y="350">受光フラスタム</text>
+<text x="414" y="377" fill="#c8deec" font-size="16">カスケードの担当範囲</text>
+<rect x="258" y="238" width="24" height="24" fill="#8ad4bd"/>
+<text x="265" y="256" fill="#142126" font-size="16">A</text>
+<path d="M290 259L440 327" stroke="#8ad4bd" stroke-width="2" marker-end="url(#green)"/>
+<text x="110" y="214" fill="#a5e1ce">A：視野外でも影が届く → 残す</text>
+<rect x="698" y="288" width="24" height="24" fill="#d69a91"/>
+<text x="705" y="306" fill="#142126" font-size="16">B</text>
+<path d="M730 309L786 334" stroke="#c1cbd1" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="632" y="265" fill="#e5afa6">B：影が届かない</text>
+<text x="691" y="362" fill="#e5afa6">→ 除外</text>
+<rect x="80" y="507" width="18" height="18" fill="#386f63" stroke="#8ad4bd"/>
+<text x="110" y="522">Shadow Caster Volume（光源方向へ押し出した領域）</text>
+</g>
+</svg>
