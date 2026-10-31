@@ -1,0 +1,22 @@
+.modeler-article { max-width: none; }
+.modeler-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 20px; margin: 20px 0; }
+.modeler-workspace canvas { display: block; width: 100%; aspect-ratio: 3 / 2; background: #101c22; touch-action: none; border-radius: 6px; }
+.modeler-workspace > div { min-width: 0; }
+.modeler-toolbar { display: flex; gap: 10px; margin-bottom: 10px; }
+.modeler-workspace fieldset { border: 1px solid #34474b; border-radius: 6px; padding: 16px; }
+.modeler-workspace label { display: block; margin: 12px 0 24px; }
+.modeler-workspace input { display: block; width: 100%; margin-top: 8px; }
+.modeler-workspace output { float: right; font-variant-numeric: tabular-nums; }
+.modeler-workspace p { font-size: .88rem; color: #b2c0c4; }
+@media(max-width: 800px) { .modeler-workspace { grid-template-columns: 1fr; } }
+
+.modeler-workspace button { padding: 8px 12px; border: 1px solid #486166; border-radius: 5px; background: #20353b; color: #d7e4e5; cursor: pointer; }
+.modeler-workspace button:disabled { opacity: .45; cursor: default; }
+.modeler-workspace input[type=number] { box-sizing: border-box; padding: 7px; background: #101f25; border: 1px solid #486166; border-radius: 4px; color: #d7e4e5; }
+.modeler-workspace input[type=range] { accent-color: #91bab7; }
+.modeler-workspace :focus-visible { outline: 2px solid #b6d8d4; outline-offset: 3px; }
+
+.modeler-workspace select { width: 100%; margin-top: 8px; padding: 7px; background: #101f25; color: #d7e4e5; border: 1px solid #486166; border-radius: 4px; }
+.modeler-workspace .modeler-check { display: flex; align-items: center; gap: 8px; }
+.modeler-workspace .modeler-check input { width: auto; margin: 0; }
+.modeler-workspace aside { max-height: 680px; overflow-y: auto; scrollbar-gutter: stable; }

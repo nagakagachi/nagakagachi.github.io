@@ -1,0 +1,54 @@
+<!doctype html><meta charset="utf-8"><title>GPU樹木配置の検証</title><pre id="result">GPUテスト実行中</pre>
+<script type="module">
+const output=document.querySelector('#result');
+const owned=[];
+try {
+ const adapter=await navigator.gpu.requestAdapter();if(!adapter)throw new Error('GPUなし');
+ const device=await adapter.requestDevice();
+ const base='/lab/webgpu/experiments/rendering-sandbox/v03/renderer/';
+ const source=await Promise.all(['tile-common.wgsl','foliage-compute.wgsl'].map(name=>fetch(base+name).then(r=>r.text())));
+ const module=device.createShaderModule({code:source.join('\n')});
+ const errors=(await module.getCompilationInfo()).messages.filter(m=>m.type==='error');if(errors.length)throw new Error(errors.map(m=>m.message).join('\n'));
+ const buffer=(size,usage)=>{const b=device.createBuffer({size,usage:usage|GPUBufferUsage.COPY_DST|GPUBufferUsage.COPY_SRC});owned.push(b);return b;};
+ const scene=buffer(752,GPUBufferUsage.UNIFORM),config=buffer(64,GPUBufferUsage.UNIFORM);
+ const roots=buffer(10816*32,GPUBufferUsage.STORAGE),headers=buffer(169*16,GPUBufferUsage.STORAGE),jobs=buffer(144,GPUBufferUsage.STORAGE);
+ const items=buffer(10816*4*4,GPUBufferUsage.STORAGE),args=buffer(120,GPUBufferUsage.STORAGE),heights=buffer(2097152,GPUBufferUsage.STORAGE);
+ const layout=device.createBindGroupLayout({entries:[
+  ...[0,1].map(binding=>({binding,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}})),
+  ...[2,3,4,5,6].map(binding=>({binding,visibility:GPUShaderStage.COMPUTE,buffer:{type:'storage'}})),
+  {binding:7,visibility:GPUShaderStage.COMPUTE,buffer:{type:'read-only-storage'}}]});
+ const group=device.createBindGroup({layout,entries:[scene,config,roots,headers,jobs,items,args,heights].map((buffer,binding)=>({binding,resource:{buffer}}))});
+ const pipelines=await Promise.all(['schedule','generate','cull','finalize','merge'].map(entryPoint=>device.createComputePipelineAsync({layout:device.createPipelineLayout({bindGroupLayouts:[layout]}),compute:{module,entryPoint}})));
+ const matrix=new Float32Array(188);for(const i of [0,5,10,15])matrix[i]=1;device.queue.writeBuffer(scene,0,matrix);
+ const cfg=new ArrayBuffer(64),f=new Float32Array(cfg),u=new Uint32Array(cfg);
+ function settings(x,z,epoch,density){f.set([x,0,z,540]);u.set([1234,epoch,8,0],4);f.set([density,4,8,0],8);u.set([24,0,0,0],12);device.queue.writeBuffer(config,0,cfg);}
+ async function generate(){
+  const encoder=device.createCommandEncoder();const pass=encoder.beginComputePass();pass.setBindGroup(0,group);
+  pass.setPipeline(pipelines[0]);pass.dispatchWorkgroups(1);pass.setPipeline(pipelines[1]);pass.dispatchWorkgroups(8);pass.end();device.queue.submit([encoder.finish()]);
+ }
+ async function read(buffer){const b=device.createBuffer({size:buffer.size,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});const e=device.createCommandEncoder();e.copyBufferToBuffer(buffer,0,b,0,buffer.size);device.queue.submit([e.finish()]);await b.mapAsync(GPUMapMode.READ);const data=b.getMappedRange().slice(0);b.unmap();b.destroy();return data;}
+ const assert=(condition,text)=>{if(!condition)throw new Error(text);};
+ settings(0,0,1,0.5);for(let i=0;i<23;i++)await generate();
+ const initial=new Float32Array(await read(roots));const h0=new Int32Array(await read(headers));
+ assert(Array.from({length:169},(_,i)=>h0[i*4+2]===1&&h0[i*4+3]===1).every(Boolean),'全チャンク完成');
+ assert(initial.every(Number.isFinite),'有限値');
+ assert(new Set(Array.from({length:10816},(_,i)=>initial[i*8+5])).size===3,'3樹形の配置');
+ for(let i=0;i<10816;i++)assert(Math.abs(initial[i*8+1]+0.15)<1e-6,'平面標高への接地');
+ const generateAgain=async(x,z,epoch)=>{settings(x,z,epoch,0.5);for(let i=0;i<23;i++)await generate();return new Float32Array(await read(roots));};
+ const repeated=await generateAgain(0,0,2);assert(initial.every((v,i)=>v===repeated[i]),'同座標・同seedの再現性');
+ const moved=await generateAgain(64,0,2);const h1=new Int32Array(await read(headers));
+ for(let slot=0;slot<169;slot++)if(h0[slot*4]===h1[slot*4]&&h0[slot*4+1]===h1[slot*4+1]) {
+  for(let j=0;j<64*8;j++)assert(repeated[slot*64*8+j]===moved[slot*64*8+j],'重複領域の保持');
+ }
+ await generateAgain(-128,-192,3);const negative=new Int32Array(await read(headers));
+ assert(new Set(Array.from({length:169},(_,i)=>`${negative[i*4]},${negative[i*4+1]}`)).size===169,'負座標の一意スロット');
+ const e=device.createCommandEncoder();e.clearBuffer(args);const c=e.beginComputePass();c.setBindGroup(0,group);c.setPipeline(pipelines[2]);c.dispatchWorkgroups(169);c.setPipeline(pipelines[3]);c.dispatchWorkgroups(3);c.setPipeline(pipelines[4]);c.dispatchWorkgroups(169);c.end();device.queue.submit([e.finish()]);
+ const counts=new Uint32Array(await read(args)),visible=new Uint32Array(await read(items));let total=0;
+ for(let lod=0;lod<3;lod++){const count=counts[lod*10+1];total+=count;assert(count<=10816,'容量内');assert(lod===0||counts[lod*10+6]===0,'余分な葉Drawなし');const list=visible.slice(lod*10816,lod*10816+count);assert(new Set(list).size===count&&list.every(id=>id<10816),'可視リストの一意性');}
+ assert(total>0,'樹木が可視');assert(counts[6]===total*24,'単一葉Drawの個数');
+ const merged=visible.slice(32448,32448+total);assert(new Set(merged).size===total&&merged.every(id=>id<10816),'葉用可視リストの結合');
+ settings(-128,-192,4,0);for(let i=0;i<23;i++)await generate();const empty=new Float32Array(await read(roots));assert(Array.from({length:10816},(_,i)=>empty[i*8+3]===0).every(Boolean),'密度0で配置なし');
+ output.textContent='PASS: 全169チャンク生成、有限値、接地、seed再現性、重複保持、負座標、可視圧縮、単一葉Draw・可視リスト結合、容量、密度0';
+ owned.forEach(b=>b.destroy());device.destroy();
+}catch(error){owned.forEach(b=>b.destroy());output.textContent='FAIL: '+error.stack;}
+</script>

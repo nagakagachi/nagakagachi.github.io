@@ -1,0 +1,62 @@
+{{ define "main" }}
+<link rel="stylesheet" href="{{ (.Resources.Get "workspace.css").RelPermalink }}">
+<article class="article modeler-article">
+<header class="article-header">{{ partial "lab-breadcrumbs.html" . }}<h1>{{ .Title }}</h1></header>
+{{ $parts := split .Content "<!-- demo -->" }}
+<div class="article-body">{{ index $parts 0 | safeHTML }}</div>
+<section class="modeler-workspace" aria-label="枝葉のMassInstance描画">
+<div>
+<div class="modeler-toolbar"><button id="gpu-start">実行</button><button id="camera-reset" disabled>全体を表示</button><button id="view-front">正面</button><button id="view-oblique">斜め</button><button id="view-top">上面</button></div>
+<canvas id="gpu-canvas" width="960" height="640" aria-label="枝葉の3Dプレビュー"></canvas>
+<p id="gpu-status" role="status" aria-live="polite">実行ボタンで開始します</p>
+<p>ドラッグ：回転 · ホイール：拡大・縮小</p>
+<p id="skeleton-info"></p>
+<p id="class-info"></p>
+<p id="geometry-info">メッシュ未生成</p>
+<p id="draw-info"></p>
+<p id="sharing-info"></p>
+<p id="mesh-info"></p>
+</div>
+<aside aria-label="葉の設定"><fieldset id="parameters" disabled><legend>配置</legend>
+<label>プレビュー<select id="model-mode"><option value="tree" selected>樹木</option><option value="forest">複数樹木・Instanced Draw</option><option value="part">枝葉単体</option></select></label>
+<p>単木の編集と複数樹木のInstanced Drawを切り替えられます</p>
+<div id="tree-controls">
+<div id="forest-controls" hidden>
+<label>配置本数 <output id="tree-count-value">9</output><input id="tree-count" type="range" min="1" max="100" step="1" value="9"></label>
+<label>ユニーク形状数 <output id="tree-variations-value">4</output><input id="tree-variations" type="range" min="1" max="4" step="1" value="4"></label>
+</div>
+<label>幹LOD<select id="wood-lod"><option value="0">LOD0：円周8分割</option><option value="1">LOD1：円周6分割</option><option value="2">LOD2：円周4分割</option></select></label>
+<label>幹の根元半径 / 樹高 <output id="wood-radius-value">0.025</output><input id="wood-radius" type="range" min="0.01" max="0.08" step="0.005" value="0.025"></label>
+<label>先細り <output id="wood-taper-value">1</output><input id="wood-taper" type="range" min="0.5" max="2" step="0.1" value="1"></label>
+<label class="modeler-check"><input id="show-leaves" type="checkbox" checked>枝葉を表示</label>
+
+<label>樹形プリセット<select id="tree-form"><option value="conical">円錐形</option><option value="oval">卵形</option><option value="rounded" selected>球形</option><option value="umbrella">傘形</option><option value="vase">杯形</option><option value="weeping">しだれ形</option></select></label>
+<label>主要枝数 <output id="major-branches-value">3本</output><input id="major-branches" type="range" min="0" max="3" step="1" value="3"></label>
+<p id="preset-state">プリセットの初期値</p>
+<details><summary>骨格・枝葉配置のパラメータ</summary><p>高さと位置は0〜1の比率。発生高さは主幹上の位置です。開始位置は終了位置以下にしてください</p><div id="shape-controls"></div></details>
+<label>樹高 <output id="tree-height-value">8 m</output><input id="tree-height" type="range" min="3" max="20" step="0.5" value="8"></label>
+<label>樹冠幅の基準 <output id="crown-width-value">6 m</output><input id="crown-width" type="range" min="2" max="10" step="0.25" value="6"></label>
+<label>取り付け数 <output id="socket-count-value">24</output><input id="socket-count" type="range" min="4" max="48" step="1" value="24"></label>
+<label>主幹の曲がり <output id="trunk-bend-value">0.8 m</output><input id="trunk-bend" type="range" min="0" max="3" step="0.1" value="0.8"></label>
+<label class="modeler-check"><input id="show-trunk" type="checkbox" checked>骨格の中心線</label>
+</div>
+<label>枝葉クラス<select id="leaf-class"><option value="-1">全クラス</option><option value="0">小：32tri（枝12＋葉20）</option><option value="1">中：64tri（枝24＋葉40）</option><option value="2" selected>大：128tri（枝24＋葉104）</option></select></label>
+<label>バリエーション<select id="variation"><option value="-1">4種類を使用 / 比較</option><option value="0">広葉樹・扇状</option><option value="1" selected>広葉樹・丸い塊</option><option value="2">広葉樹・垂れ枝</option><option value="3">松風・枝葉</option></select></label>
+<label>シード<input id="seed" type="number" min="0" max="4294967295" step="1" value="1234"></label>
+<label>枝の広がり <output id="spread-value">1</output><input id="spread" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
+<label>葉の開き <output id="opening-value">1</output><input id="opening" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
+<label>奥行き <output id="depth-value">1</output><input id="depth" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
+<label>葉の大きさ <output id="leaf-size-value">1</output><input id="leaf-size" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
+<label class="modeler-check"><input id="silhouette" type="checkbox">枝葉シルエット</label>
+<label class="modeler-check"><input id="debug-colors" type="checkbox">バリエーション識別色</label>
+<div id="part-controls" hidden>
+<label>目印の幹の高さ <output id="height-value">0.75 m</output><input id="height" type="range" min="0.5" max="3" step="0.05" value="0.75"></label>
+<label>塊のスケール <output id="scale-value">1</output><input id="leaf-scale" type="range" min="0.5" max="2" step="0.1" value="1"></label>
+</div>
+<button id="defaults" type="button">初期値に戻す</button>
+</fieldset></aside></section>
+<div class="article-body">{{ index $parts 1 | safeHTML }}
+<h2>ソース</h2>{{ with .OutputFormats.Get "Source" }}<p><a href="{{ .RelPermalink }}">直接表示</a></p>{{ end }}
+</div></article>
+<script type="module" src="{{ (.Resources.Get "main.js").RelPermalink }}"></script>
+{{ end }}

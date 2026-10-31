@@ -1,0 +1,7 @@
+{{ define "main" }}
+<article class="article"><h1>{{ .Title }} ソース</h1><p><a href="{{ .RelPermalink }}">プレビューに戻る</a></p><div class="article-body">
+{{ range .Resources.Match "*" }}{{ if or (strings.HasSuffix .Name ".ts") (strings.HasSuffix .Name ".wgsl") }}
+<h2>{{ .Name }}</h2><p><a href="https://github.com/nagakagachi/nagakagachi.github.io/blob/main/site/content/{{ replace $.File.Dir "\\" "/" }}{{ .Name }}">GitHub</a></p>
+{{ $language := "text" }}{{ if strings.HasSuffix .Name ".ts" }}{{ $language = "typescript" }}{{ end }}{{ highlight .Content $language "" }}
+{{ end }}{{ end }}</div></article>
+{{ end }}
