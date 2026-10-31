@@ -54,6 +54,8 @@ description: "樹木の骨格・幹・枝葉を生成し、共有IBとバリエ�
 
 ## 共有IBとバリエーションStorage VB
 
+主幹・主要枝へ再利用する枝葉の塊を取り付けるBranch cluster Treeの構成です。同じトポロジの形状違いをInstanced Drawへまとめる仕組みは、[Rendererの技術説明](../renderer/#branch-cluster-tree)にも記載しています。
+
 ```wgsl
 return (placement.variation.x * leafClass.verticesPerVariation + vertexIndex) * 9u;
 ```
