@@ -63,6 +63,12 @@ description: "広葉樹系3樹形のGPU配置・Indirect描画と近中景CSMの
 
 枝葉部品は**同じトポロジなら、形状が異なっていても同じIndexed Instanced Drawにまとめます**。単に頂点数や三角形数が同じという条件ではなく、頂点番号の対応と三角形の接続を同じIBで表せることが条件です。広がり・曲がり・葉の向き・色などは頂点データ側で変えます。
 
+![4頂点2三角形の葉A/B/Cが共通IBを使い、形状IDに応じたStorage VBの頂点オフセットで1回のInstanced Drawにまとめられる図](branch-cluster-instancing.svg)
+
+[図を拡大](branch-cluster-instancing.svg)
+
+図では4頂点の葉をA/B/Cの3形状とし、A→B→C→Aの4インスタンスを描きます。IBは変えず、VSが形状IDから頂点の先頭を選びます。メッシュを1つの形状へ結合する処理や、インスタンスごとに固定機能の`baseVertex`を変更する処理ではありません。図のアドレスは頂点単位で、下記コードではさらに9 float/頂点を掛けます。実装では図の`drawIndexed(6, 4)`に相当する個数をGPUで作り、`drawIndexedIndirect`を発行しています。
+
 | データ | 保持方法 |
 | --- | --- |
 | 三角形の接続 | クラス内で共通のuint16 IB |

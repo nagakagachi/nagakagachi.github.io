@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1080" role="img" aria-labelledby="title desc">
+<title id="title">共通IBとStorage VBのオフセットで形状違いをInstanced Drawする仕組み</title>
+<desc id="desc">細い葉A、広い葉B、曲がった葉Cはすべて4頂点2三角形で、共通IBは0,1,2と0,2,3。Storage VBにはAの頂点を0から3、Bを4から7、Cを8から11に連続格納する。VSは形状IDかける4とIBの頂点番号を加算して読み取る。4インスタンスがA,B,C,Aを選び、同じDrawで配置される。</desc>
+<defs>
+<marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#b4cbd0"/></marker>
+<g id="leafA"><path d="M0 -44L-19 0L0 44L19 0Z" fill="#4a9c7b"/><path d="M0 -44V44" stroke="#d8efe5" stroke-width="2"/></g>
+<g id="leafB"><path d="M0 -44L-43 -4L0 44L43 -4Z" fill="#4d93bc"/><path d="M0 -44V44" stroke="#dfedf5" stroke-width="2"/></g>
+<g id="leafC"><path d="M22 -44L-22 -5L0 44L48 8Z" fill="#b69458"/><path d="M22 -44L0 44" stroke="#f3e7cd" stroke-width="2"/></g>
+</defs>
+<rect width="1000" height="1080" rx="14" fill="#142126"/>
+<g font-family="sans-serif" font-size="20" fill="#e2eaed">
+<text x="28" y="40" font-size="26">形状が違っても、接続が同じなら同じDraw</text>
+<text x="28" y="71" fill="#b3c5cb">枝葉の塊を、4頂点・2三角形の葉で単純化した例</text>
+<g fill="#1c3037" stroke="#48616b"><rect x="26" y="96" width="300" height="188" rx="8"/><rect x="350" y="96" width="300" height="188" rx="8"/><rect x="674" y="96" width="300" height="188" rx="8"/></g>
+<text x="48" y="127" fill="#8dd4b5">形状A / ID 0</text><text x="372" y="127" fill="#95c9ed">形状B / ID 1</text><text x="696" y="127" fill="#e1c38a">形状C / ID 2</text>
+<g transform="translate(174 193)"><use href="#leafA"/><text x="7" y="-48">0</text><text x="-43" y="5">1</text><text x="7" y="63">2</text><text x="27" y="5">3</text></g>
+<g transform="translate(498 193)"><use href="#leafB"/><text x="7" y="-48">0</text><text x="-67" y="1">1</text><text x="7" y="63">2</text><text x="51" y="1">3</text></g>
+<g transform="translate(806 193)"><use href="#leafC"/><text x="30" y="-48">0</text><text x="-46" y="0">1</text><text x="7" y="63">2</text><text x="56" y="13">3</text></g>
+<text x="28" y="315" fill="#b3c5cb">頂点番号と三角形の接続を共通化し、頂点位置は形状ごとに持つ</text>
+<g fill="#1c3037" stroke="#48616b"><rect x="26" y="336" width="294" height="230" rx="8"/><rect x="346" y="336" width="628" height="230" rx="8"/></g>
+<text x="48" y="370" font-size="23">共通IB：1個</text>
+<g font-family="monospace" font-size="25"><text x="52" y="419">[0, 1, 2,</text><text x="52" y="454"> 0, 2, 3]</text></g>
+<text x="48" y="502" fill="#b3c5cb">形状IDで変更しない</text><text x="48" y="536" fill="#b3c5cb">参照する番号は常に0〜3</text>
+<text x="368" y="370" font-size="23">Storage VB：形状ごとに連続格納</text>
+<rect x="368" y="394" width="136" height="40" rx="4" fill="#142126" stroke="#8dd4b5"/><text x="380" y="421" fill="#8dd4b5" font-family="monospace">0 : A0</text>
+<rect x="514" y="394" width="136" height="40" rx="4" fill="#142126" stroke="#8dd4b5"/><text x="526" y="421" fill="#8dd4b5" font-family="monospace">1 : A1</text>
+<rect x="660" y="394" width="136" height="40" rx="4" fill="#142126" stroke="#8dd4b5"/><text x="672" y="421" fill="#8dd4b5" font-family="monospace">2 : A2</text>
+<rect x="806" y="394" width="136" height="40" rx="4" fill="#142126" stroke="#8dd4b5"/><text x="818" y="421" fill="#8dd4b5" font-family="monospace">3 : A3</text>
+<rect x="368" y="446" width="136" height="40" rx="4" fill="#142126" stroke="#95c9ed"/><text x="380" y="473" fill="#95c9ed" font-family="monospace">4 : B0</text>
+<rect x="514" y="446" width="136" height="40" rx="4" fill="#142126" stroke="#95c9ed"/><text x="526" y="473" fill="#95c9ed" font-family="monospace">5 : B1</text>
+<rect x="660" y="446" width="136" height="40" rx="4" fill="#142126" stroke="#95c9ed"/><text x="672" y="473" fill="#95c9ed" font-family="monospace">6 : B2</text>
+<rect x="806" y="446" width="136" height="40" rx="4" fill="#142126" stroke="#95c9ed"/><text x="818" y="473" fill="#95c9ed" font-family="monospace">7 : B3</text>
+<rect x="368" y="498" width="136" height="40" rx="4" fill="#142126" stroke="#e1c38a"/><text x="380" y="525" fill="#e1c38a" font-family="monospace">8 : C0</text>
+<rect x="514" y="498" width="136" height="40" rx="4" fill="#142126" stroke="#e1c38a"/><text x="526" y="525" fill="#e1c38a" font-family="monospace">9 : C1</text>
+<rect x="660" y="498" width="136" height="40" rx="4" fill="#142126" stroke="#e1c38a"/><text x="672" y="525" fill="#e1c38a" font-family="monospace">10 : C2</text>
+<rect x="806" y="498" width="136" height="40" rx="4" fill="#142126" stroke="#e1c38a"/><text x="818" y="525" fill="#e1c38a" font-family="monospace">11 : C3</text>
+<text x="28" y="607" fill="#b3c5cb">インスタンスごとに形状IDを選択：0（A）、1（B）、2（C）、0（A）</text>
+<path d="M173 568V582M173 622V639" fill="none" stroke="#b4cbd0" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M660 568V582M660 622V639" fill="none" stroke="#b4cbd0" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="26" y="649" width="948" height="142" rx="8" fill="#20383f" stroke="#8bbab6"/>
+<text x="48" y="684" font-size="23">VSで読み取り先を選ぶ（頂点単位）</text>
+<text x="48" y="725" font-family="monospace" font-size="25">VB[ 形状ID × 4 + vertex_index ]</text>
+<text x="48" y="763" fill="#b3c5cb">例：形状B、IBの頂点番号2 → 1 × 4 + 2 = 6 → B2を読む</text>
+<path d="M500 794V841" fill="none" stroke="#b4cbd0" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="26" y="852" width="948" height="200" rx="8" fill="#1c3037" stroke="#48616b"/>
+<text x="48" y="888" font-size="24">1回のIndexed Instanced Drawで4枚を配置</text>
+<text x="48" y="919" fill="#b3c5cb">drawIndexed(6, 4)　／　位置・回転・スケールもインスタンスごとに適用</text>
+<g transform="translate(170 982) rotate(-15) scale(.8)"><use href="#leafA"/></g>
+<g transform="translate(390 982) rotate(20) scale(.8)"><use href="#leafB"/></g>
+<g transform="translate(610 982) rotate(-20) scale(.8)"><use href="#leafC"/></g>
+<g transform="translate(830 982) rotate(35) scale(.65)"><use href="#leafA"/></g>
+<text x="150" y="1035" fill="#8dd4b5">A</text><text x="380" y="1035" fill="#95c9ed">B</text><text x="600" y="1035" fill="#e1c38a">C</text><text x="820" y="1035" fill="#8dd4b5">A</text>
+</g>
+</svg>
