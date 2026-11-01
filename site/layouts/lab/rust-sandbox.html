@@ -18,7 +18,7 @@ body:has(.rust-sandbox-article) main.shell { max-width:none; }
 {{ with .Params.preview }}
   {{ with $.Resources.Get . }}
   <figure class="rust-sandbox-preview">
-    <a href="{{ .RelPermalink }}"><img src="{{ .RelPermalink }}" width="{{ .Width }}" height="{{ .Height }}" alt="山地の地形に配置された樹木と影、青空の実行例" decoding="async"></a>
+    <a href="{{ .RelPermalink }}"><img src="{{ .RelPermalink }}" width="{{ .Width }}" height="{{ .Height }}" alt="{{ $.Params.preview_alt | default "山地の地形に配置された樹木と影、青空の実行例" }}" decoding="async"></a>
     <figcaption>{{ $.Params.preview_caption }}</figcaption>
   </figure>
   {{ end }}

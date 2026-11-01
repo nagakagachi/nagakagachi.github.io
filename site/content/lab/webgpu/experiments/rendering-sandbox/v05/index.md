@@ -1,9 +1,12 @@
 ﻿---
 title: "RenderingSandbox v05"
 date: "2026-11-01"
-lastmod: "2026-11-01T23:13:33+09:00"
+lastmod: "2026-11-02"
 draft: false
 layout: "rust-sandbox"
+preview: "preview.webp"
+preview_caption: "実行時の表示例（Windows版・視点を調整）"
+preview_alt: "Screen Space Shadowを有効にした地形・樹木・影の実行例"
 description: "Screen Space ShadowのベースラインとGPU計測・比較環境"
 ---
 
