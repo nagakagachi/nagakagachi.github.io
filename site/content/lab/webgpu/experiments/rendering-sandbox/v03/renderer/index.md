@@ -11,6 +11,10 @@ description: "広葉樹系3樹形のGPU配置・Indirect描画と近中景CSMの
 
 [Foliage Modeler](../foliage-modeler/)と同じ生成処理で作った樹木を、GPU上でカメラ周辺から順次配置します。[v03の概要](../) · [版一覧](../../)
 
+[![実行時の表示例：山地の地形に配置した樹木と、その影、青空](preview.webp)](preview.webp)
+
+実行時の表示例（視点を調整しています）
+
 <!-- demo -->
 
 ## 現在の構成と制限
