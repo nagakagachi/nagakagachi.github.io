@@ -21,9 +21,6 @@ fn tracePixel(id: vec2u) -> vec4f {
     let h = ss.inverseViewProjection * vec4f(uv * vec2f(2, -2) + vec2f(-1, 1), raw, 1);
     let origin = h.xyz / h.w;
     let viewZ = 1.0 / raw;
-    if (ss.adaptive.x == 0.0 && ss.display.z == 0u && viewZ < ss.trace.w * 0.9) {
-        return vec4f(1, 0, 4.0 / 255.0, 1);
-    }
     // 初期区間は視点距離に関係なく固定幅。その後の二次配置だけを遠方へ広げる。
     // 全区間を単純にスケールすると、最初のサンプルから接触部分を飛び越えるため。
     let adaptive = ss.adaptive.x != 0.0;
@@ -95,7 +92,7 @@ fn traceMain(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation
     }
     if (ss.options.z != 0u) {
         let status = u32(round(value.z * 255.0));
-        partial[lane] = vec4u(u32(valid && status != 0u && status != 4u), u32(round(value.y*16.0)) + u32(valid),
+        partial[lane] = vec4u(u32(valid && status != 0u), u32(round(value.y*16.0)) + u32(valid),
                             u32(valid && status == 1u), u32(valid && status == 3u));
         workgroupBarrier();
         // 全laneで共有メモリを縮約し、大域Atomicは1workgroupにつき最大4回。

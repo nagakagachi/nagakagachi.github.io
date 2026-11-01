@@ -29,7 +29,6 @@ pub struct Settings {
     pub contact_step: f32,
     pub contact_steps: u32,
     pub step_thickness: f32,
-    pub all_distances: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -52,7 +51,6 @@ impl Default for Settings {
             contact_step: 0.25,
             contact_steps: 4,
             step_thickness: 0.5,
-            all_distances: false,
         }
     }
 }
@@ -62,8 +60,6 @@ struct Params {
     inverse: [[f32; 4]; 4],
     matrix: [[f32; 4]; 4],
     light: [f32; 4],
-    camera: [f32; 4],
-    forward: [f32; 4],
     trace: [f32; 4],
     dimensions: [u32; 4],
     options: [u32; 4],
@@ -222,7 +218,6 @@ impl ScreenShadow {
         s: &SceneSettings,
         c: &Camera,
         full: [u32; 2],
-        csm_end: f32,
         frame: u64,
         timer: &mut GpuProfiler,
     ) {
@@ -232,9 +227,7 @@ impl ScreenShadow {
             inverse: matrix.inverse().to_cols_array_2d(),
             matrix: matrix.to_cols_array_2d(),
             light: crate::scene::light(s).extend(0.).to_array(),
-            camera: c.position.extend(0.).to_array(),
-            forward: c.forward().extend(0.).to_array(),
-            trace: [v.length, v.thickness, v.bias, csm_end],
+            trace: [v.length, v.thickness, v.bias, 0.],
             dimensions: [full[0], full[1], self.size[0], self.size[1]],
             options: [
                 v.enabled as u32,
@@ -242,12 +235,7 @@ impl ScreenShadow {
                 v.counters as u32,
                 v.mode,
             ],
-            display: [
-                v.debug,
-                v.bilinear as u32,
-                (v.all_distances || !s.shadows) as u32,
-                v.jitter as u32,
-            ],
+            display: [v.debug, v.bilinear as u32, 0, v.jitter as u32],
             adaptive: [
                 v.adaptive as u32 as f32,
                 v.reference_distance.max(1.),
@@ -429,7 +417,6 @@ pub fn verify_gpu(d: &wgpu::Device, q: &wgpu::Queue) -> Result<(), wgpu::PollErr
     let mut settings = SceneSettings::default();
     settings.elevation = 0.;
     settings.azimuth = 90.;
-    settings.screen_shadow.all_distances = true;
     settings.screen_shadow.steps = 8;
     settings.screen_shadow.divisor = 4;
     settings.screen_shadow.counters = true;
@@ -442,11 +429,12 @@ pub fn verify_gpu(d: &wgpu::Device, q: &wgpu::Queue) -> Result<(), wgpu::PollErr
     let readback = buffer(d, "検証用マスク", 256 * 16, B::MAP_READ | B::COPY_DST);
     let mut timer = GpuProfiler::new(d, q);
     let mut saved = None;
-    for case in 0..9 {
+    for case in 0..10 {
+        let far = (6..=8).contains(&case);
         settings.screen_shadow.counters = case != 3;
-        settings.screen_shadow.adaptive = case != 6;
+        settings.screen_shadow.adaptive = case != 6 && case != 9;
         settings.screen_shadow.reference_distance = 10.;
-        settings.screen_shadow.thickness = if case >= 6 { 0.2 } else { 6. };
+        settings.screen_shadow.thickness = if far { 0.2 } else { 6. };
         settings.screen_shadow.step_thickness = if case == 8 { 0. } else { 0.5 };
         settings.screen_shadow.jitter = case != 4;
         let mut e = d.create_command_encoder(&Default::default());
@@ -460,7 +448,7 @@ pub fn verify_gpu(d: &wgpu::Device, q: &wgpu::Queue) -> Result<(), wgpu::PollErr
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(if case == 0 {
                             0.
-                        } else if case >= 6 {
+                        } else if far {
                             0.001
                         } else {
                             0.1
@@ -473,21 +461,12 @@ pub fn verify_gpu(d: &wgpu::Device, q: &wgpu::Queue) -> Result<(), wgpu::PollErr
                 occlusion_query_set: None,
             });
             if case >= 2 {
-                p.set_pipeline(if case >= 6 { &far_pipeline } else { &pipeline });
+                p.set_pipeline(if far { &far_pipeline } else { &pipeline });
                 p.set_scissor_rect(28, 16, 8, 32);
                 p.draw(0..3, 0..1);
             }
         }
-        screen.encode(
-            q,
-            &mut e,
-            &settings,
-            &camera,
-            [64, 64],
-            256.,
-            case,
-            &mut timer,
-        );
+        screen.encode(q, &mut e, &settings, &camera, [64, 64], case, &mut timer);
         e.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &screen.mask,
@@ -593,6 +572,12 @@ pub fn verify_gpu(d: &wgpu::Device, q: &wgpu::Queue) -> Result<(), wgpu::PollErr
                 "区間厚み補正なしでは深い侵入を棄却"
             );
         }
+        if case == 9 {
+            assert!(
+                screen.counts.unwrap()[2] > 0,
+                "距離対応OFFでも近景のレイ全体を計算する"
+            );
+        }
         drop(data);
         readback.unmap();
     }
@@ -603,9 +588,9 @@ mod tests {
     use super::*;
     #[test]
     fn params_and_small_dimensions() {
-        assert_eq!(std::mem::size_of::<Params>(), 272);
-        assert_eq!(std::mem::offset_of!(Params, adaptive), 240);
-        assert_eq!(std::mem::offset_of!(Params, contact), 256);
+        assert_eq!(std::mem::size_of::<Params>(), 240);
+        assert_eq!(std::mem::offset_of!(Params, adaptive), 208);
+        assert_eq!(std::mem::offset_of!(Params, contact), 224);
         assert_eq!(dimensions([1920, 1080], 4), [480, 270]);
         assert_eq!(dimensions([17, 9], 4), [5, 3]);
         assert_eq!(dimensions([1, 1], 4), [1, 1]);

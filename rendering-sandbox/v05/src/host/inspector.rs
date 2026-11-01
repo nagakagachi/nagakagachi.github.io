@@ -309,7 +309,7 @@ impl super::State {
                                 .logarithmic(true)
                                 .text("始点バイアス m"),
                         );
-                        ui.checkbox(&mut p.adaptive, "距離対応＋コンタクト補完");
+                        ui.checkbox(&mut p.adaptive, "距離に応じてレイ長・厚みを変更");
                         ui.collapsing("距離とサンプル配置", |ui| {
                             ui.add(
                                 egui::Slider::new(&mut p.reference_distance, 16.0..=2048.0)
@@ -345,18 +345,17 @@ impl super::State {
                         });
                         ui.checkbox(&mut p.jitter, "レイジッター（IGN）");
                         ui.checkbox(&mut p.bilinear, "Bilinear再構成");
-                        ui.checkbox(&mut p.all_distances, "近景にも長距離成分を合成（比較用）");
                         egui::ComboBox::from_label("合成")
                             .selected_text(
                                 [
-                                    "CSM＋コンタクト・遠景",
+                                    "CSM＋Screen Space Shadow",
                                     "CSMのみ",
                                     "Screen Space Shadowのみ",
                                 ][p.mode as usize],
                             )
                             .show_ui(ui, |ui| {
                                 for (i, label) in [
-                                    "CSM＋コンタクト・遠景",
+                                    "CSM＋Screen Space Shadow",
                                     "CSMのみ",
                                     "Screen Space Shadowのみ",
                                 ]
@@ -373,7 +372,7 @@ impl super::State {
                                     "可視率マスク",
                                     "深度参照数",
                                     "終了理由",
-                                    "コンタクトマスク",
+                                    "初期区間マスク",
                                 ][p.debug as usize],
                             )
                             .show_ui(ui, |ui| {
@@ -382,7 +381,7 @@ impl super::State {
                                     "可視率マスク",
                                     "深度参照数",
                                     "終了理由",
-                                    "コンタクトマスク",
+                                    "初期区間マスク",
                                 ]
                                 .iter()
                                 .enumerate()
@@ -391,7 +390,7 @@ impl super::State {
                                 }
                             });
                         if p.debug == 3 {
-                            ui.small("赤：交差、緑：未交差、青：画面外、灰：CSM範囲内、黒：空");
+                            ui.small("赤：交差、緑：未交差、青：画面外、黒：空");
                         }
                         ui.small(
                             "CSMのみは合成の比較。負荷の比較はScreen Space ShadowをOFFにします",

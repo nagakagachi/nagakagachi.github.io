@@ -750,8 +750,7 @@ impl Renderer {
             }
             self.foliage.draw(&mut p, 0, false, &self.lighting_group);
         }
-        self.screen
-            .encode(q, e, s, c, self.size, cascades[3].split, self.frame, timer);
+        self.screen.encode(q, e, s, c, self.size, self.frame, timer);
         {
             let mut p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ShadowPass"),

@@ -14,7 +14,7 @@
         let t=v.y*16.0/f32(ss.options.y);
         return vec4f(t, 1.0-abs(t*2.0-1.0), 1.0-t,1);
     }
-    let colors=array<vec3f,5>(vec3f(0.06),vec3f(1,0.15,0.1),vec3f(0.15,0.75,0.2),
-                             vec3f(0.2,0.4,1),vec3f(0.5));
-    return vec4f(colors[min(u32(round(v.z*255.0)),4u)],1);
+    let colors=array<vec3f,4>(vec3f(0.06),vec3f(1,0.15,0.1),vec3f(0.15,0.75,0.2),
+                             vec3f(0.2,0.4,1));
+    return vec4f(colors[min(u32(round(v.z*255.0)),3u)],1);
 }

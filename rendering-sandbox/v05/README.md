@@ -15,12 +15,12 @@ Webページはtools/build_site.pyで生成する。v04の生成物・ソース�
 
 ## 追加部分
 
-- screen_shadow.rs：リソース、272bytesのUniform、Trace、非同期診断と実GPU検証
+- screen_shadow.rs：リソース、240bytesのUniform、Trace、非同期診断と実GPU検証
 - shaders/screen-shadow-*.wgsl：基準のTrace、Forwardへの可視率合成、可視化
 - profiler.rs：240件の統計窓、中央値/P95、30件ウォームアップ、設定世代による旧読戻しの除外
 - host/inspector.rs：Screen Space Shadow設定、可視化、A/B保存復帰とカメラ固定
 
-MaskはRGBA8Unormの4bytes/texel。Rは可視率、Gは深度参照数/16、Bは終了理由/255、Aは短い初期区間だけのコンタクト可視率。1080pの縦横1/4では480×270、約0.49MiB。別途272bytesのUniformと各16bytesの集計・読戻しバッファ。メイン深度は既存のものを使う。Point/Bilinearでのマスク参照はForward内で行うため、独立した再構成パスはない。Trace以外の合成コストはForward時間へ含む。
+MaskはRGBA8Unormの4bytes/texel。Rは可視率、Gは深度参照数/16、Bは終了理由/255、Aは診断用の初期区間可視率。1080pの縦横1/4では480×270、約0.49MiB。別途240bytesのUniformと各16bytesの集計・読戻しバッファ。メイン深度は既存のものを使う。Point/Bilinearでのマスク参照はForward内で行うため、独立した再構成パスはない。Trace以外の合成コストはForward時間へ含む。
 
 診断の読戻しは1スロットで、使用中なら次の診断読戻しだけ省略する。マスク生成は継続しGPU完了を待たない。GPU時間の読戻しは既存の4スロット方式。smokeに限って同期waitし、空・単一平面・既知の遮蔽物、診断ON/OFFの一致、全解像度/合成/可視化を検査する。
 
@@ -35,7 +35,7 @@ MaskはRGBA8Unormの4bytes/texel。Rは可視率、Gは深度参照数/16、Bは
 
 厚みの基準を0.2m、始点biasを0.02mへ変更。初期区間は固定厚みのまま、後半はmin(256m,0.2m×scale+0.5×区間幅)とする。正確な物体の厚みではなく、少数サンプルの見落としを緩和する許容幅。過大な設定は誤遮蔽を増やす。
 
-近景でもTraceし、Mask Aへ初期区間だけの可視率を格納する。CSM範囲内はmin(CSM,contact)、終端10%で全体マスクRへ切替える。同じRGBA8へ詰めるため追加テクスチャはない。統計のTrace画素数は終了理由から算出する。距離対応OFFで旧来の等間隔・固定厚みへ戻せる。
+全距離でTraceし、レイ全体の可視率Rをmin(CSM,R)で直射光へ合成する。距離による適用制限やCSM終端での切り替えはない。Mask Aの初期区間可視率は診断専用とする。同じRGBA8へ詰めるため追加テクスチャはない。統計のTrace画素数は終了理由から算出する。距離対応OFFで旧来の等間隔・固定厚みへ戻せる。
 
 参考はUnity HDRPのContactShadows.compute（視点深度による距離スケール）とTomasz Stachowiakの深度レイマーチ（非線形配置・厚みとの関係）。これらの実装をそのまま移植したものではなく、始点付近の固定区間と後半の二次配置を組み合わせた実験用設計。
 
@@ -45,3 +45,5 @@ MaskはRGBA8Unormの4bytes/texel。Rは可視率、Gは深度参照数/16、Bは
 - [ ] Screen Space Shadowに目立つ自己遮蔽的なアーティファクトがある。原因を切り分けて低減する。v05公開時点では未修正。
 
 厚み・始点バイアス・点サンプルの近似は調査対象だが、原因や解決策はまだ確定していない。既存の描画設定を変更して解決済みとは扱わない。
+
+距離対応ON/OFFはレイ長・サンプル配置・厚みの方式だけを切り替える。OFFでも全距離への適用は維持し、近景用の別チェックボックスは設けない。

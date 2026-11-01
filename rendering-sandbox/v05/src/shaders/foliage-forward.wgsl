@@ -99,7 +99,7 @@ fn fragmentMain(input: VertexOutput, @builtin(front_facing) front:bool) -> @loca
     if(meshInfo.debug.x!=0u){return vec4f(preExposeRadiance(input.color,cameraFrame),1);}
     let n = normalize(input.normal)*select(-1.0,1.0,front);
     if (scene.elevation.z != 0.0) { return vec4f(preExposeRadiance(n * 0.5 + 0.5, cameraFrame), 1.0); }
-    let visibility = combinedVisibility(shadowVisibility(input.worldPosition, n), input.clip.xy, input.worldPosition);
+    let visibility = combinedVisibility(shadowVisibility(input.worldPosition, n), input.clip.xy);
     if (lighting.shadowFilter.y != 0.0) { return vec4f(preExposeRadiance(vec3f(visibility), cameraFrame), 1.0); }
     let t = clamp((input.height - scene.elevation.x) * scene.elevation.y, 0.0, 1.0);
 

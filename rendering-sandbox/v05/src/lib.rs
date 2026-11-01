@@ -108,7 +108,6 @@ pub fn smoke() -> Result<(), Box<dyn std::error::Error>> {
         // 解像度・可視化・合成の全組合せを小さいターゲットで検査する。
         r.resize(&device, [320, 180]);
         s.screen_shadow.counters = true;
-        s.screen_shadow.all_distances = true;
         for divisor in [1, 2, 4] {
             s.screen_shadow.divisor = divisor;
             for mode in 0..3 {

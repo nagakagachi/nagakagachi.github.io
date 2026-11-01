@@ -154,7 +154,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     }
     let n = normalize(input.normal);
     if (scene.elevation.z != 0.0) { return vec4f(preExposeRadiance(n * 0.5 + 0.5, cameraFrame), 1.0); }
-    let visibility = combinedVisibility(shadowVisibility(input.worldPosition, n), input.clip.xy, input.worldPosition);
+    let visibility = combinedVisibility(shadowVisibility(input.worldPosition, n), input.clip.xy);
     if (lighting.shadowFilter.y != 0.0) { return vec4f(preExposeRadiance(vec3f(visibility), cameraFrame), 1.0); }
     let t = clamp((input.height - scene.elevation.x) * scene.elevation.y, 0.0, 1.0);
     if (scene.elevation.w != 0.0) { return vec4f(preExposeRadiance(tileColor(input.tileID), cameraFrame), 1.0); }
