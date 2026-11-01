@@ -1,6 +1,7 @@
 ﻿---
 title: "RenderingSandbox v04"
 date: "2026-11-01"
+lastmod: "2026-11-01T19:34:00+09:00"
 draft: false
 layout: "rust-sandbox"
 preview: "preview.webp"

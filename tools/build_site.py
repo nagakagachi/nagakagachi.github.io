@@ -28,7 +28,7 @@ def main():
         subprocess.run(['node', str(compiler), '--project', str(repository / 'tsconfig.json'),
                         '--outDir', str(stage / 'content')], cwd=repository, check=True)
         # 下書きのRust版は公開ビルドへ混入させない。公開時には生成を必須にする。
-        rust_page = repository / 'site/content/lab/webgpu/experiments/rendering-sandbox/v04/_index.md'
+        rust_page = repository / 'site/content/lab/webgpu/experiments/rendering-sandbox/v04/index.md'
         if rust_page.exists() and (args.drafts or 'draft: true' not in rust_page.read_text(encoding='utf-8-sig')):
             generated = build_rust(Path(temporary) / 'rust-web')
             destination_bundle = stage / 'content/lab/webgpu/experiments/rendering-sandbox/v04'
