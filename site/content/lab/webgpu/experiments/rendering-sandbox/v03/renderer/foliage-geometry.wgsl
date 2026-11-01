@@ -22,7 +22,14 @@ fn plantVertex(id:u32,instance:u32)->PlantVertex {
  var color=read3(at+6u);
  if(meshInfo.debug.x==1u){let palette=array<vec3f,3>(vec3f(0.9,0.15,0.1),vec3f(0.1,0.8,0.2),vec3f(0.1,0.3,0.9));color=palette[select(meshInfo.level,u32(root.info.z),leaf)];}
  if(meshInfo.debug.x==2u){let id=items[meshInfo.level*10816u+treeInstance]/64u;let h=id*747796405u+2891336453u;color=0.2+0.7*vec3f(f32(h&255u),f32((h>>8u)&255u),f32((h>>16u)&255u))/255.0;}
- if(meshInfo.debug.x==3u){color=select(vec3f(0.65,0.25,0.08),vec3f(0.1,0.8,0.35),leaf);}
+ if(meshInfo.debug.x==3u){
+  let colors=array<vec3f,4>(vec3f(0.1,0.8,0.35),vec3f(0.15,0.45,0.95),vec3f(0.9,0.65,0.1),vec3f(0.75,0.15,0.75));
+  color=vec3f(0.65,0.25,0.08);if(leaf){color=colors[meshInfo.level-3u];}
+ }
+ if(meshInfo.debug.x==4u){
+  let colors=array<vec3f,4>(vec3f(0.9,0.15,0.1),vec3f(0.1,0.8,0.2),vec3f(0.1,0.3,0.9),vec3f(0.85,0.6,0.15));
+  color=colors[select(u32(root.info.w),meshInfo.level-3u,leaf)];
+ }
  return PlantVertex(yaw(p,root.info.x)*root.positionScale.w+root.positionScale.xyz,yaw(n,root.info.x),color);
 }
 @vertex fn depthMain(@builtin(vertex_index) id:u32,@builtin(instance_index) instance:u32)->@builtin(position) @invariant vec4f {

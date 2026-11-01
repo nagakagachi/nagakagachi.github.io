@@ -10,6 +10,7 @@
 <canvas id="gpu-canvas" width="960" height="640" aria-label="枝葉の3Dプレビュー"></canvas>
 <p id="gpu-status" role="status" aria-live="polite">実行ボタンで開始します</p>
 <p>ドラッグ：回転 · ホイール：拡大・縮小</p>
+<p id="lod-info"></p>
 <p id="skeleton-info"></p>
 <p id="class-info"></p>
 <p id="geometry-info">メッシュ未生成</p>
@@ -18,8 +19,9 @@
 <p id="mesh-info"></p>
 </div>
 <aside aria-label="葉の設定"><fieldset id="parameters" disabled><legend>配置</legend>
-<label>プレビュー<select id="model-mode"><option value="tree" selected>樹木</option><option value="forest">複数樹木・Instanced Draw</option><option value="part">枝葉単体</option></select></label>
+<label>プレビュー<select id="model-mode"><option value="tree" selected>樹木</option><option value="forest">複数樹木・Instanced Draw</option><option value="part">枝葉単体</option><option value="lod-comparison">枝葉LOD0〜3比較</option></select></label>
 <p>単木の編集と複数樹木のInstanced Drawを切り替えられます</p>
+<label>枝葉LOD<select id="leaf-lod"><option value="0">LOD0</option><option value="1">LOD1</option><option value="2">LOD2</option><option value="3">LOD3</option></select></label>
 <div id="tree-controls">
 <div id="forest-controls" hidden>
 <label>配置本数 <output id="tree-count-value">9</output><input id="tree-count" type="range" min="1" max="100" step="1" value="9"></label>

@@ -109,7 +109,7 @@ export async function createPreview(canvas: HTMLCanvasElement, library: readonly
                 { binding: 0, resource: { buffer: vertices } }, { binding: 1, resource: { buffer: placements } },
                 { binding: 2, resource: { buffer: parameters } }
             ] });
-            return { vertices, indices, parameters, placements, group, count: leaf.indices.length, instances: leaf.variationCount };
+            return { vertices, indices, parameters, placements, group, count: leaf.indices.length, instances: 0 };
         };
         const leafResources = library.map(createResource);
         let woodGeometry: MeshGeometry | undefined;
@@ -146,6 +146,7 @@ export async function createPreview(canvas: HTMLCanvasElement, library: readonly
                 lineBuffer?.destroy();
                 lineCount=(scene.debugLines?.length ?? 0)/3;
                 lineBuffer=scene.debugLines?.length?upload(scene.debugLines,GPUBufferUsage.VERTEX,'主幹デバッグライン'):undefined;
+                leafResources.forEach(resource=>{resource.instances=0;});
                 scene.placements.forEach((data,i)=>setPlacements(leafResources[i],data));
                 if(scene.wood?.geometry!==woodGeometry) {
                     if(woodResource)destroyResource(woodResource);

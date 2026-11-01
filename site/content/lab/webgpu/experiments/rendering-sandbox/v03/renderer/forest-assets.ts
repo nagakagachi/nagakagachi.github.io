@@ -1,3 +1,4 @@
+import {createLeafLods} from '../foliage-modeler/leaf-lod.js';
 import {createLeafLibrary} from '../foliage-modeler/leaf-library.js';
 import {createTreeScene,DEFAULT_TREE_PARAMETERS,TREE_PRESETS} from '../foliage-modeler/tree-model.js';
 import {createWoodGeometry,DEFAULT_WOOD_PARAMETERS} from '../foliage-modeler/wood-mesh.js';
@@ -10,5 +11,5 @@ export function createForestAssets() {
         ...DEFAULT_TREE_PARAMETERS,seed:1234+i*1723,form,majorBranches:3,
         shape:TREE_PRESETS[form].shape,crownWidth:8,classIndex:1,variationIndex:i,showTrunk:false
     }));
-    return {library,trees,wood:[0,1,2].map(lod=>createWoodGeometry(trees.map(s=>s.tree),DEFAULT_TREE_PARAMETERS.height,DEFAULT_WOOD_PARAMETERS,lod))};
+    return {library,leafLods:createLeafLods(library),trees,wood:[0,1,2].map(lod=>createWoodGeometry(trees.map(s=>s.tree),DEFAULT_TREE_PARAMETERS.height,DEFAULT_WOOD_PARAMETERS,lod))};
 }

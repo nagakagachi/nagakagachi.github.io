@@ -12,16 +12,16 @@ try {
  const buffer=(size,usage)=>{const b=device.createBuffer({size,usage:usage|GPUBufferUsage.COPY_DST|GPUBufferUsage.COPY_SRC});owned.push(b);return b;};
  const scene=buffer(752,GPUBufferUsage.UNIFORM),config=buffer(64,GPUBufferUsage.UNIFORM);
  const roots=buffer(10816*32,GPUBufferUsage.STORAGE),headers=buffer(169*16,GPUBufferUsage.STORAGE),jobs=buffer(144,GPUBufferUsage.STORAGE);
- const items=buffer(10816*4*4,GPUBufferUsage.STORAGE),args=buffer(120,GPUBufferUsage.STORAGE),heights=buffer(2097152,GPUBufferUsage.STORAGE);
+ const items=buffer(10816*7*4,GPUBufferUsage.STORAGE),args=buffer(140,GPUBufferUsage.STORAGE),heights=buffer(2097152,GPUBufferUsage.STORAGE);
  const layout=device.createBindGroupLayout({entries:[
   ...[0,1].map(binding=>({binding,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}})),
   ...[2,3,4,5,6].map(binding=>({binding,visibility:GPUShaderStage.COMPUTE,buffer:{type:'storage'}})),
   {binding:7,visibility:GPUShaderStage.COMPUTE,buffer:{type:'read-only-storage'}}]});
  const group=device.createBindGroup({layout,entries:[scene,config,roots,headers,jobs,items,args,heights].map((buffer,binding)=>({binding,resource:{buffer}}))});
- const pipelines=await Promise.all(['schedule','generate','cull','finalize','merge'].map(entryPoint=>device.createComputePipelineAsync({layout:device.createPipelineLayout({bindGroupLayouts:[layout]}),compute:{module,entryPoint}})));
+ const pipelines=await Promise.all(['schedule','generate','cull','finalize'].map(entryPoint=>device.createComputePipelineAsync({layout:device.createPipelineLayout({bindGroupLayouts:[layout]}),compute:{module,entryPoint}})));
  const matrix=new Float32Array(188);for(const i of [0,5,10,15])matrix[i]=1;device.queue.writeBuffer(scene,0,matrix);
  const cfg=new ArrayBuffer(64),f=new Float32Array(cfg),u=new Uint32Array(cfg);
- function settings(x,z,epoch,density){f.set([x,0,z,540]);u.set([1234,epoch,8,0],4);f.set([density,4,8,0],8);u.set([24,0,0,0],12);device.queue.writeBuffer(config,0,cfg);}
+ function settings(x,z,epoch,density){f.set([x,0,z,540]);u.set([1234,epoch,8,0],4);f.set([density,4,8,0.25],8);u.set([24,0,0,0],12);device.queue.writeBuffer(config,0,cfg);}
  async function generate(){
   const encoder=device.createCommandEncoder();const pass=encoder.beginComputePass();pass.setBindGroup(0,group);
   pass.setPipeline(pipelines[0]);pass.dispatchWorkgroups(1);pass.setPipeline(pipelines[1]);pass.dispatchWorkgroups(8);pass.end();device.queue.submit([encoder.finish()]);
@@ -42,13 +42,25 @@ try {
  }
  await generateAgain(-128,-192,3);const negative=new Int32Array(await read(headers));
  assert(new Set(Array.from({length:169},(_,i)=>`${negative[i*4]},${negative[i*4+1]}`)).size===169,'負座標の一意スロット');
- const e=device.createCommandEncoder();e.clearBuffer(args);const c=e.beginComputePass();c.setBindGroup(0,group);c.setPipeline(pipelines[2]);c.dispatchWorkgroups(169);c.setPipeline(pipelines[3]);c.dispatchWorkgroups(3);c.setPipeline(pipelines[4]);c.dispatchWorkgroups(169);c.end();device.queue.submit([e.finish()]);
- const counts=new Uint32Array(await read(args)),visible=new Uint32Array(await read(items));let total=0;
- for(let lod=0;lod<3;lod++){const count=counts[lod*10+1];total+=count;assert(count<=10816,'容量内');assert(lod===0||counts[lod*10+6]===0,'余分な葉Drawなし');const list=visible.slice(lod*10816,lod*10816+count);assert(new Set(list).size===count&&list.every(id=>id<10816),'可視リストの一意性');}
- assert(total>0,'樹木が可視');assert(counts[6]===total*24,'単一葉Drawの個数');
- const merged=visible.slice(32448,32448+total);assert(new Set(merged).size===total&&merged.every(id=>id<10816),'葉用可視リストの結合');
+ async function checkCulling(forced=-1){
+  u[13]=forced+1;device.queue.writeBuffer(config,0,cfg);
+  const e=device.createCommandEncoder();e.clearBuffer(args);const c=e.beginComputePass();c.setBindGroup(0,group);c.setPipeline(pipelines[2]);c.dispatchWorkgroups(169);c.setPipeline(pipelines[3]);c.dispatchWorkgroups(4);c.end();device.queue.submit([e.finish()]);
+  const counts=new Uint32Array(await read(args)),visible=new Uint32Array(await read(items));
+  const wood=new Set(),leaves=new Set();
+  for(let bucket=0;bucket<7;bucket++){
+   const raw=counts[bucket*5+1];assert(bucket<3||raw%24===0,'ソケット数の倍数');
+   const count=bucket<3?raw:raw/24;assert(count<=10816,'容量内');
+   const list=visible.slice(bucket*10816,bucket*10816+count);
+   assert(new Set(list).size===count&&list.every(id=>id<10816),'可視リストの一意性');
+   const set=bucket<3?wood:leaves;
+   for(const id of list){assert(!set.has(id),'LOD間の重複なし');set.add(id);}
+   if(forced>=0&&bucket>=3&&bucket!==forced+3)assert(count===0,'固定LOD以外の枝葉Drawなし');
+  }
+  assert(wood.size>0,'樹木が可視');assert(wood.size===leaves.size&&[...wood].every(id=>leaves.has(id)),'幹と枝葉の可視木が一致');
+ }
+ await checkCulling();for(let lod=0;lod<4;lod++)await checkCulling(lod);
  settings(-128,-192,4,0);for(let i=0;i<23;i++)await generate();const empty=new Float32Array(await read(roots));assert(Array.from({length:10816},(_,i)=>empty[i*8+3]===0).every(Boolean),'密度0で配置なし');
- output.textContent='PASS: 全169チャンク生成、有限値、接地、seed再現性、重複保持、負座標、可視圧縮、単一葉Draw・可視リスト結合、容量、密度0';
+ output.textContent='PASS: 全169チャンク生成、有限値、接地、seed再現性、重複保持、負座標、可視圧縮、枝葉4LOD・固定LOD・幹と枝葉の可視集合一致、容量、密度0';
  owned.forEach(b=>b.destroy());device.destroy();
 }catch(error){owned.forEach(b=>b.destroy());output.textContent='FAIL: '+error.stack;}
 </script>

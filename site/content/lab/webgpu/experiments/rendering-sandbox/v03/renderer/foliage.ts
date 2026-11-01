@@ -19,16 +19,23 @@ export async function createFoliage(device:GPUDevice,shader:(name:string,library
   Math.max(Math.abs(s.bounds.min[0]),Math.abs(s.bounds.max[0]))+0.3,
   Math.max(Math.abs(s.bounds.min[1]-boundCenter),Math.abs(s.bounds.max[1]-boundCenter)),
   Math.max(Math.abs(s.bounds.min[2]),Math.abs(s.bounds.max[2]))+0.3)))+0.3;
- const template=library[1];
- // 広葉樹の枝葉3形状だけを転送し、全幹LODから同じVB/IBを参照する。
- const leaf={...template,variationCount:3,vertices:template.vertices.slice(0,3*template.verticesPerVariation*9)};
+ // 規模クラスは中のまま、各バリエーションのLOD0〜3を別の共有トポロジとして保持する。
+ const leaves=assets.leafLods.map(library=>{
+  const template=library[1];
+  return {...template,variationCount:3,vertices:template.vertices.slice(0,3*template.verticesPerVariation*9)};
+ });
+ const maxLeafRadius=Math.max(...assets.trees.flatMap(tree=>tree.tree.sockets.map(socket=>{
+  const leaf=leaves[0];let radius=0;
+  for(let i=0;i<leaf.verticesPerVariation;i++){const at=(socket.placement.variationId*leaf.verticesPerVariation+i)*9;radius=Math.max(radius,Math.hypot(leaf.vertices[at],leaf.vertices[at+1],leaf.vertices[at+2]));}
+  return radius*socket.placement.scale;
+ })));
  const socketCount=assets.trees[0].tree.sockets.length;
  const socketData=packPlacements(assets.trees.flatMap(s=>s.tree.sockets.map(socket=>socket.placement)));
  const sockets=upload(socketData,GPUBufferUsage.STORAGE);
  const roots=buffer(10816*32,GPUBufferUsage.STORAGE);
  const headers=buffer(169*16,GPUBufferUsage.STORAGE);
  const jobs=buffer(144,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC);
- const readback=buffer(16+120*5,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
+ const readback=buffer(16+140*5,GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST);
  const computeShader=await shader('foliage-compute.wgsl');
  const computeLayout=device.createBindGroupLayout({entries:[
   {binding:0,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}},
@@ -37,7 +44,7 @@ export async function createFoliage(device:GPUDevice,shader:(name:string,library
   {binding:7,visibility:GPUShaderStage.COMPUTE,buffer:{type:'read-only-storage'}}
  ]});
  const computePipelineLayout=device.createPipelineLayout({bindGroupLayouts:[computeLayout]});
- const pipelines=await Promise.all(['schedule','generate','cull','finalize','merge'].map(entryPoint=>device.createComputePipelineAsync({layout:computePipelineLayout,compute:{module:computeShader,entryPoint}})));
+ const pipelines=await Promise.all(['schedule','generate','cull','finalize'].map(entryPoint=>device.createComputePipelineAsync({layout:computePipelineLayout,compute:{module:computeShader,entryPoint}})));
  const geometryLayout=device.createBindGroupLayout({entries:[
   {binding:0,visibility:GPUShaderStage.VERTEX|GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}},
   ...[1,2,3,4].map(binding=>({binding,visibility:GPUShaderStage.VERTEX,buffer:{type:'read-only-storage' as const}})),
@@ -61,14 +68,14 @@ export async function createFoliage(device:GPUDevice,shader:(name:string,library
    primitive,depthStencil:{format:'depth32float',depthCompare:'equal',depthWriteEnabled:false}});
   return {depth,forward};
  }));
- const leafVertices=upload(leaf.vertices,GPUBufferUsage.STORAGE),leafIndices=upload(leaf.indices,GPUBufferUsage.INDEX);
- const geometries=assets.wood.flatMap((wood,level)=>[wood,leaf].map((geometry,part)=>({
-  vertices:part===1?leafVertices:upload(geometry.vertices,GPUBufferUsage.STORAGE),indices:part===1?leafIndices:upload(geometry.indices,GPUBufferUsage.INDEX),
-  info:upload(new Uint32Array([geometry.verticesPerVariation,socketCount,part,part===1?3:level,0,0,0,0]),GPUBufferUsage.UNIFORM),count:geometry.indices.length,part
- })));
+ const geometries=[...assets.wood.map((geometry,lod)=>({geometry,lod,part:0})),...leaves.map((geometry,lod)=>({geometry,lod,part:1}))].map(({geometry,lod,part},bucket)=>({
+  vertices:upload(geometry.vertices,GPUBufferUsage.STORAGE),indices:upload(geometry.indices,GPUBufferUsage.INDEX),
+  info:upload(new Uint32Array([geometry.verticesPerVariation,socketCount,part,bucket,0,0,0,0]),GPUBufferUsage.UNIFORM),
+  count:geometry.indices.length,part,lod
+ }));
  const state=views.map(uniform=>{
-  const visible=buffer(10816*4*4,GPUBufferUsage.STORAGE);
-  const args=buffer(120,GPUBufferUsage.STORAGE|GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_SRC);
+  const visible=buffer(10816*7*4,GPUBufferUsage.STORAGE);
+  const args=buffer(140,GPUBufferUsage.STORAGE|GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_SRC);
   geometries.forEach((g,i)=>device.queue.writeBuffer(args,i*20,new Uint32Array([g.count,0,0,0,0])));
   const config=buffer(64,GPUBufferUsage.UNIFORM);
   const groups=geometries.map(g=>device.createBindGroup({layout:geometryLayout,entries:[
@@ -84,7 +91,6 @@ export async function createFoliage(device:GPUDevice,shader:(name:string,library
  let heightBuffer:GPUBuffer|undefined,computeGroups:GPUBindGroup[]=[];
  const render=(pass:GPURenderPassEncoder,view:number,forward:boolean):void=>{
   for(let i=0;i<geometries.length;i++) {
-   if(i===3||i===5)continue;
    const geometry=geometries[i],pipeline=renderPipelines[geometry.part];
    pass.setPipeline(forward?pipeline.forward:pipeline.depth);pass.setBindGroup(0,state[view].groups[i]);
    if(forward)pass.setBindGroup(1,lightingGroup);
@@ -94,7 +100,7 @@ export async function createFoliage(device:GPUDevice,shader:(name:string,library
  const renderable:OpaqueRenderable={drawDepth(pass,view){render(pass,view==='main'?0:view+1,false);},drawForward(pass){render(pass,0,true);},drawDebug(){}};
  return {renderable,setStatisticsListener(listener:(message:string)=>void):void{statisticsListener=listener;},get needsFrame(){return needsFrame;},get statistics(){return statistics;},
   get bytes(){return owned.reduce((n,b)=>n+b.size,0);},
-  encode(encoder:GPUCommandEncoder,height:GPUBuffer,camera:readonly number[],seed:number,density:number,budget:number,enabled:boolean,live:boolean,screenHeight:number,debugMode:number):void {
+  encode(encoder:GPUCommandEncoder,height:GPUBuffer,camera:readonly number[],seed:number,density:number,budget:number,enabled:boolean,live:boolean,screenHeight:number,debugMode:number,leafLod:number=-1):void {
    for(const g of geometries)device.queue.writeBuffer(g.info,16,new Uint32Array([debugMode,0,0,0]));
    if(!live)return;
    lastEnabled=enabled;
@@ -109,20 +115,19 @@ export async function createFoliage(device:GPUDevice,shader:(name:string,library
    state.forEach((view,i)=>{
     const data=new ArrayBuffer(64),f=new Float32Array(data),u=new Uint32Array(data);
     f.set([camera[0],camera[1],camera[2],i===0?screenHeight:1024]);u.set([seed,epoch,budget,i],4);
-    f.set([enabled?density:0,boundCenter,boundRadius,0],8);u.set([socketCount,0,0,0],12);device.queue.writeBuffer(view.config,0,data);
-    for(let j=0;j<6;j++)encoder.clearBuffer(view.args,j*20+4,4);
+    f.set([enabled?density:0,boundCenter,boundRadius,maxLeafRadius/boundRadius],8);u.set([socketCount,leafLod+1,0,0],12);device.queue.writeBuffer(view.config,0,data);
+    for(let j=0;j<7;j++)encoder.clearBuffer(view.args,j*20+4,4);
    });
    if(enabled){
     const pass=encoder.beginComputePass({label:'植生チャンク選択・生成'});pass.setBindGroup(0,computeGroups[0]);
     pass.setPipeline(pipelines[0]);pass.dispatchWorkgroups(1);pass.setPipeline(pipelines[1]);pass.dispatchWorkgroups(8);pass.end();
     const cull=encoder.beginComputePass({label:'樹木・CSMカリングとLOD'});
     state.forEach((_,i)=>{cull.setBindGroup(0,computeGroups[i]);cull.setPipeline(pipelines[2]);cull.dispatchWorkgroups(169);
-     cull.setPipeline(pipelines[3]);cull.dispatchWorkgroups(3);
-     cull.setPipeline(pipelines[4]);cull.dispatchWorkgroups(169);});cull.end();
+     cull.setPipeline(pipelines[3]);cull.dispatchWorkgroups(4);});cull.end();
    }
    if(!pendingRead){
     pendingRead=true;readRevision=workRevision;encoder.copyBufferToBuffer(jobs,0,readback,0,16);
-    state.forEach((view,i)=>encoder.copyBufferToBuffer(view.args,0,readback,16+i*120,120));
+    state.forEach((view,i)=>encoder.copyBufferToBuffer(view.args,0,readback,16+i*140,140));
     // 読み戻しは表示と次フレームの起床だけに使い、可視数やDraw引数の決定には使わない。
 
    }
@@ -131,9 +136,10 @@ export async function createFoliage(device:GPUDevice,shader:(name:string,library
    mapping=true;
     void device.queue.onSubmittedWorkDone().then(async()=>{
      if(!alive)return;await readback.mapAsync(GPUMapMode.READ);
-     const values=new Uint32Array(readback.getMappedRange());const counts=[values[5],values[15],values[25]];
-     const shadowCounts=[1,2,3,4].map(view=>[0,1,2].reduce((n,lod)=>n+values[4+view*30+lod*10+1],0));
-     needsFrame=lastEnabled&&(readRevision!==workRevision||values[1]>0);statistics=`未生成 ${values[1]}/169チャンク · 今回 ${values[0]}チャンク · Main LOD ${counts.join(' / ')}本 · CSM ${shadowCounts.join(' / ')}本 · 幹3 / 枝葉1 Indirect Draw/パス`;
+     const values=new Uint32Array(readback.getMappedRange());const counts=[values[5],values[10],values[15]];
+     const leafCounts=[0,1,2,3].map(lod=>values[4+(3+lod)*5+1]);
+     const shadowCounts=[1,2,3,4].map(view=>[0,1,2].reduce((n,lod)=>n+values[4+view*35+lod*5+1],0));
+     needsFrame=lastEnabled&&(readRevision!==workRevision||values[1]>0);statistics=`未生成 ${values[1]}/169チャンク · 今回 ${values[0]}チャンク · 幹LOD ${counts.join(' / ')}本 · 枝葉LOD ${leafCounts.join(' / ')}配置 · CSM ${shadowCounts.join(' / ')}本 · 幹3 / 枝葉4 Indirect Draw/パス`;
      readback.unmap();pendingRead=false;mapping=false;
      if(alive)statisticsListener(statistics);
     }).catch(()=>{pendingRead=false;mapping=false;});

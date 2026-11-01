@@ -62,6 +62,7 @@
 <label class="check"><input id="foliage-enabled" type="checkbox" checked> 樹木を表示</label>
 <label class="parameter"><span>密度</span><input id="foliage-density" type="range" min="0" max="1" step="0.05" value="0.3"><output id="foliage-density-value">0.3</output></label>
 <label class="parameter"><span>生成チャンク数 / フレーム</span><input id="foliage-budget" type="range" min="1" max="8" step="1" value="4"><output id="foliage-budget-value">4</output></label>
-<label class="parameter"><span>樹木デバッグ</span><select id="foliage-debug"><option value="0">通常表示</option><option value="1">幹LOD色分け</option><option value="2">配置チャンク色分け</option><option value="3">Draw色分け（枝葉=緑・幹=茶）</option></select></label>
-<p>描画256m・保持384m / 世界座標に固定した候補 / 幹3段LOD</p>
+<label class="parameter"><span>樹木デバッグ</span><select id="foliage-debug"><option value="0">通常表示</option><option value="1">幹LOD色分け</option><option value="2">配置チャンク色分け</option><option value="3">Draw色分け（枝葉LOD別）</option><option value="4">枝葉LOD色分け</option></select></label>
+<label class="parameter"><span>枝葉LOD</span><select id="foliage-leaf-lod"><option value="-1">自動</option><option value="0">LOD0固定</option><option value="1">LOD1固定</option><option value="2">LOD2固定</option><option value="3">LOD3固定</option></select></label>
+<p>描画256m・保持384m / 世界座標に固定した候補 / 幹3段 / 枝葉4段LOD</p>
 </details>

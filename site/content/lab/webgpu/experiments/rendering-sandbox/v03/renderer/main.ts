@@ -549,8 +549,9 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
         debugResources.push(foliage);
         const foliageEnabled=element('#foliage-enabled',HTMLInputElement);
         const foliageDebug=element('#foliage-debug',HTMLSelectElement);
+        const foliageLeafLod=element('#foliage-leaf-lod',HTMLSelectElement);
         const foliageDensity=element('#foliage-density',HTMLInputElement),foliageBudget=element('#foliage-budget',HTMLInputElement);
-        for(const input of [foliageEnabled,foliageDensity,foliageBudget,foliageDebug])input.addEventListener('input',()=>{
+        for(const input of [foliageEnabled,foliageDensity,foliageBudget,foliageDebug,foliageLeafLod])input.addEventListener('input',()=>{
             element('#foliage-density-value',HTMLOutputElement).value=foliageDensity.value;
             element('#foliage-budget-value',HTMLOutputElement).value=foliageBudget.value;
             scheduleDraw();
@@ -676,7 +677,7 @@ async function initialize(token: number, signal: AbortSignal): Promise<Demo> {
                 encoder.copyBufferToBuffer(mainView.indirect, 4, wireIndirect, 4, 4);
                 updates++;
             }
-            foliage.encode(encoder,activeCache.buffer,camera.position,parameters.seed,Number(foliageDensity.value),Number(foliageBudget.value),foliageEnabled.checked,live,canvas.height,Number(foliageDebug.value));
+            foliage.encode(encoder,activeCache.buffer,camera.position,parameters.seed,Number(foliageDensity.value),Number(foliageBudget.value),foliageEnabled.checked,live,canvas.height,Number(foliageDebug.value),Number(foliageLeafLod.value));
             updateDetail(foliageInfo,foliage.statistics);
             encodeOpaquePasses(encoder, hdrView, depthView, shadowDepthView,
                 renderables, shadows.checked, wireframe.checked, environment);

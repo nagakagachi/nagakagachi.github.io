@@ -1,3 +1,4 @@
+import {createLeafLods,createLeafLodComparison} from './leaf-lod.js';
 import { createTreeAssets, createTreePreviewScene } from './tree-preview.js';
 import { DEFAULT_TREE_PARAMETERS, isTreeForm, TREE_PRESETS, SHAPE_CONTROLS } from './tree-model.js';
 import type { ShapeKey, TreeShape } from './tree-model.js';
@@ -13,6 +14,7 @@ function element<T extends HTMLElement>(id: string, type: { new(): T }): T {
     return value;
 }
 const mode=element('model-mode',HTMLSelectElement);
+const leafLod=element('leaf-lod',HTMLSelectElement);
 const treeCount=element('tree-count',HTMLInputElement),treeVariations=element('tree-variations',HTMLInputElement);
 const woodLod=element('wood-lod',HTMLSelectElement),woodRadius=element('wood-radius',HTMLInputElement),woodTaper=element('wood-taper',HTMLInputElement);
 const showLeaves=element('show-leaves',HTMLInputElement);
@@ -56,6 +58,7 @@ const opening = element('opening', HTMLInputElement), debugColors = element('deb
 const classSelect = element('leaf-class', HTMLSelectElement), variationSelect = element('variation',HTMLSelectElement);
 const depth = element('depth', HTMLInputElement), leafSize = element('leaf-size', HTMLInputElement);
 let library = createLeafLibrary();
+let leafLods=createLeafLods(library);
 let libraryKey = '', shownView = 'tree:2:1';
 const camera: OrbitCamera = { yaw: 0, pitch: 0.6, distance: 18, target: [0, 4, 0] };
 let preview: Awaited<ReturnType<typeof createPreview>> | undefined;
@@ -95,11 +98,12 @@ function regenerate(): void {
         const key = JSON.stringify(parameters);
         if (key !== libraryKey) {
             const generated = createLeafLibrary(parameters);
-            preview.updateLibrary(generated);
+            leafLods=createLeafLods(generated);
+            preview.updateLibrary(leafLods.flat());
             library = generated; libraryKey = key;
         }
         const classIndex = Number(classSelect.value);
-        const treeMode=mode.value!=='part';
+        const treeMode=mode.value==='tree'||mode.value==='forest';
         const form=treeForm.value;
         if(!isTreeForm(form)) throw new Error('樹形が不正です');
         const count=mode.value==='forest'?treeCount.valueAsNumber:1;
@@ -108,23 +112,33 @@ function regenerate(): void {
             socketCount:socketCount.valueAsNumber,bend:bend.valueAsNumber,classIndex,variationIndex:Number(variationSelect.value),
             showTrunk:true,form,majorBranches:majorCount.valueAsNumber,shape:readShape()};
         const woodParameters={radiusRatio:woodRadius.valueAsNumber,taper:woodTaper.valueAsNumber};
+        const selectedLod=Number(leafLod.value);
+        const activeLibrary=leafLods[selectedLod];
         if(treeMode) {
             const assetKey=JSON.stringify([key,treeParameters,woodParameters,variations]);
             if(!treeAssets||assetKey!==treeAssetKey) {
                 treeAssets=createTreeAssets(library,treeParameters,woodParameters,variations);
                 treeAssetKey=assetKey;
             }
-            mesh=createTreePreviewScene(library,treeAssets,count,Number(woodLod.value),showTrunk.checked,showLeaves.checked);
+            mesh=createTreePreviewScene(activeLibrary,treeAssets,count,Number(woodLod.value),showTrunk.checked,showLeaves.checked);
+        } else if(mode.value==='lod-comparison') {
+            mesh=createLeafLodComparison(leafLods,{markerHeight:height.valueAsNumber,leafScale:scale.valueAsNumber,classIndex,variationIndex:Number(variationSelect.value)});
         } else {
-            mesh=createLeafScene(library,{markerHeight:height.valueAsNumber,leafScale:scale.valueAsNumber,classIndex,variationIndex:Number(variationSelect.value)});
+            mesh=createLeafScene(activeLibrary,{markerHeight:height.valueAsNumber,leafScale:scale.valueAsNumber,classIndex,variationIndex:Number(variationSelect.value)});
         }
+        if(mode.value!=='lod-comparison') {
+            const placements=mesh.placements;
+            mesh.placements=leafLods.flatMap((_,lod)=>library.map((_,c)=>lod===selectedLod?placements[c]:new Float32Array(0)));
+        }
+        const drawLibrary=leafLods.flat();
+        element('lod-info',HTMLParagraphElement).textContent=mode.value==='lod-comparison'?'左から LOD0 / LOD1 / LOD2 / LOD3（同じ規模クラス・同じバリエーション）':`枝葉 LOD${selectedLod}（規模クラスとは独立）`;
         preview.setScene(mesh);
         element('skeleton-info',HTMLParagraphElement).textContent=treeMode?
             `樹木 ${count}本 · 1本あたり主幹1本・主要枝${majorCount.value}本・取り付け${socketCount.value}個`:'';
         element('sharing-info',HTMLParagraphElement).textContent=mesh.wood?
             `幹：共有IB 1個 · 頂点 ${mesh.wood.geometry.verticesPerVariation}個/形状 × ${variations}形状 · Storage VB ${(mesh.wood.geometry.vertices.byteLength/1024).toFixed(1)} KiB · 配置 ${count}本（${mesh.wood.placements.byteLength} bytes）`:'';
         const memory = preview.resourceBytes;
-        const counts = library.filter((_,i)=>mesh?.placements[i].length).map(c=>`${c.name}部品1個：枝${c.branchCount*6}tri＋葉${c.leafCount}枚`).join(' / ');
+        const counts = drawLibrary.filter((_,i)=>mesh?.placements[i].length).map(c=>`${c.name}部品1個：枝${c.branchCount*6}tri＋葉${c.leafCount}枚`).join(' / ');
         element('class-info',HTMLParagraphElement).textContent = counts;
         const classes = mesh.placements.filter(p=>p.length>0).length;
         const instances = mesh.placements.reduce((sum,p)=>sum+p.length/PLACEMENT_FLOATS,0);
@@ -132,7 +146,7 @@ function regenerate(): void {
         const lineDraw=mesh.debugLines?.length?1:0;
         // モデルのTri数はパス数を掛けず、実際に配置したクラスのIBから集計する。
         const leafTriangles=mesh.placements.reduce((sum,placements,i)=>
-            sum+placements.length/PLACEMENT_FLOATS*(library[i].indices.length/3),0)+mesh.markerIndices.length/3;
+            sum+placements.length/PLACEMENT_FLOATS*(drawLibrary[i].indices.length/3),0)+mesh.markerIndices.length/3;
         const woodTriangles=mesh.wood?mesh.wood.geometry.indices.length/3*count:0;
         const triangles=leafTriangles+woodTriangles;
         const opaqueDraws=classes+markerDraw+(mesh.wood?1:0);
@@ -149,10 +163,11 @@ function regenerate(): void {
     } catch (error) { status.textContent = String(error); }
 }
 function updateLabels(): void {
-    const treeMode=mode.value!=='part';
+    const treeMode=mode.value==='tree'||mode.value==='forest';
     element('tree-controls',HTMLDivElement).hidden=!treeMode;
     element('part-controls',HTMLDivElement).hidden=treeMode;
     element('forest-controls',HTMLDivElement).hidden=mode.value!=='forest';
+    leafLod.disabled=mode.value==='lod-comparison';
     for(const [id,input,suffix] of [['tree-height-value',treeHeight,' m'],['crown-width-value',crownWidth,' m'],
         ['socket-count-value',socketCount,''],['trunk-bend-value',bend,' m'],['major-branches-value',majorCount,'本']] as const) {
         element(id,HTMLOutputElement).value=input.value+suffix;
@@ -184,7 +199,7 @@ start.addEventListener('click', async () => {
     const current = session;
     start.disabled = true; status.textContent = 'WebGPUを初期化しています';
     try {
-        const created = await createPreview(canvas, library, message => { if (current === session) fail(message); });
+        const created = await createPreview(canvas, leafLods.flat(), message => { if (current === session) fail(message); });
         if (current !== session) { created.dispose(); return; }
         preview = created;
         fields.disabled = false; reset.disabled = false;
@@ -206,7 +221,7 @@ element('defaults', HTMLButtonElement).addEventListener('click', () => {
     debugColors.checked = false; classSelect.value = '2'; variationSelect.value = '1'; mode.value='tree';
     treeHeight.value=String(DEFAULT_TREE_PARAMETERS.height);crownWidth.value=String(DEFAULT_TREE_PARAMETERS.crownWidth);
     socketCount.value=String(DEFAULT_TREE_PARAMETERS.socketCount);bend.value=String(DEFAULT_TREE_PARAMETERS.bend);showTrunk.checked=true;
-    treeCount.value='9';treeVariations.value='4';woodLod.value='0';woodRadius.value='0.025';woodTaper.value='1';showLeaves.checked=true;
+    leafLod.value='0';treeCount.value='9';treeVariations.value='4';woodLod.value='0';woodRadius.value='0.025';woodTaper.value='1';showLeaves.checked=true;
     treeForm.value=DEFAULT_TREE_PARAMETERS.form;majorCount.value=String(DEFAULT_TREE_PARAMETERS.majorBranches);silhouette.checked=false;
     loadPreset(); updateLabels(); regenerate(); frameTree();
 });

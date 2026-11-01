@@ -68,16 +68,16 @@ fn ground(p:vec2f)->f32 {
 }
 var<workgroup> scan:array<u32,64>;
 var<workgroup> base:u32;
-fn accepted(id:u32)->i32 {
+fn accepted(id:u32)->vec2i {
  let h=headers[id/64u];let center=vec2i(floor(config.camera.xz/64.0));
- if(h.w==0||h.z!=i32(config.world.y)||any(abs(h.xy-center)>vec2i(6))){return -1;}
- let root=roots[id];if(root.positionScale.w==0.0){return -1;}
+ if(h.w==0||h.z!=i32(config.world.y)||any(abs(h.xy-center)>vec2i(6))){return vec2i(-1);}
+ let root=roots[id];if(root.positionScale.w==0.0){return vec2i(-1);}
  let distance=length(root.positionScale.xz-config.camera.xz);
- let limit=select(384.0,256.0,config.world.w==0u);if(distance>limit){return -1;}
+ let limit=select(384.0,256.0,config.world.w==0u);if(distance>limit){return vec2i(-1);}
  let position=root.positionScale.xyz+vec3f(0,config.settings.y*root.positionScale.w,0);
  let radius=config.settings.z*root.positionScale.w;
- if(scene.layoutInfo.w!=0u){for(var i=0u;i<6u;i++){let p=scene.planes[i];if(dot(p.xyz,position)+p.w< -radius){return -1;}}}
- if(scene.shadowCasterVolumeInfo.y!=0u){for(var i=0u;i<scene.shadowCasterVolumeInfo.x;i++){let p=scene.shadowCasterVolumePlanes[i];if(dot(p.xyz,position)+p.w< -radius){return -1;}}}
+ if(scene.layoutInfo.w!=0u){for(var i=0u;i<6u;i++){let p=scene.planes[i];if(dot(p.xyz,position)+p.w< -radius){return vec2i(-1);}}}
+ if(scene.shadowCasterVolumeInfo.y!=0u){for(var i=0u;i<scene.shadowCasterVolumeInfo.x;i++){let p=scene.shadowCasterVolumePlanes[i];if(dot(p.xyz,position)+p.w< -radius){return vec2i(-1);}}}
  let clip=scene.viewProjection*vec4f(position,1);
  let scale=length(vec3f(scene.viewProjection[0].y,scene.viewProjection[1].y,scene.viewProjection[2].y));
  let pixels=2.0*radius*scale*config.camera.w*0.5/max(abs(clip.w),0.001);
@@ -91,29 +91,33 @@ fn accepted(id:u32)->i32 {
   if(previous==2&&pixels<40.0){level=2;}
   roots[id].info.z=f32(level);
  }
- return level;
+ let leafPixels=pixels*config.settings.w;
+ let leafThreshold=select(vec3f(30,12,4),vec3f(60,25,10),config.world.w==0u);
+ var leafLevel=i32(leafPixels<leafThreshold.x)+i32(leafPixels<leafThreshold.y)+i32(leafPixels<leafThreshold.z);
+ if(config.world.w==0u){
+  let previous=i32(root.info.w);
+  if(previous==0&&leafPixels>51.0){leafLevel=0;}
+  if(previous==1&&leafPixels>=21.25&&leafPixels<=69.0){leafLevel=1;}
+  if(previous==2&&leafPixels>=8.5&&leafPixels<=28.75){leafLevel=2;}
+  if(previous==3&&leafPixels<11.5){leafLevel=3;}
+ }
+ if(config.counts.y!=0u){leafLevel=i32(config.counts.y)-1;}
+ if(config.world.w==0u){roots[id].info.w=f32(leafLevel);}
+ return vec2i(level,leafLevel);
 }
 // Workgroup単位のprefix sumで圧縮し、各LODにつき非空Workgroupが1回だけ大域予約する。
 @compute @workgroup_size(64) fn cull(@builtin(global_invocation_id) gid:vec3u,@builtin(local_invocation_index) lane:u32) {
  let lod=accepted(gid.x);
- for(var level=0u;level<3u;level++) {
-  let flag=u32(lod==i32(level));scan[lane]=flag;workgroupBarrier();
+ for(var level=0u;level<7u;level++) {
+  let selected=select(lod.x,lod.y+3,level>=3u);
+  let flag=u32(lod.x>=0&&selected==i32(level));scan[lane]=flag;workgroupBarrier();
   for(var offset=1u;offset<64u;offset*=2u){var value=0u;if(lane>=offset){value=scan[lane-offset];}workgroupBarrier();scan[lane]+=value;workgroupBarrier();}
-  if(lane==63u){base=0u;if(scan[63]>0u){base=atomicAdd(&args[level*2u].instances,scan[63]);}}workgroupBarrier();
+  if(lane==63u){base=0u;if(scan[63]>0u){base=atomicAdd(&args[level].instances,scan[63]);}}workgroupBarrier();
   if(flag!=0u){items[level*10816u+base+scan[lane]-1u]=gid.x;}workgroupBarrier();
  }
 }
+// 枝葉の可視木数をソケット数倍し、各LODの枝葉を同クラス同LODでInstanced Drawする。
 @compute @workgroup_size(1) fn finalize(@builtin(global_invocation_id) gid:vec3u) {
- let level=gid.x;let count=atomicLoad(&args[level*2u].instances);
- let total=atomicLoad(&args[0].instances)+atomicLoad(&args[2].instances)+atomicLoad(&args[4].instances);
- atomicStore(&args[level*2u+1u].instances,select(0u,total*config.counts.x,level==0u));
-}
-
-// 幹LOD別の可視リストを連結し、同一クラスの全枝葉を1回のDrawへ集約する。
-@compute @workgroup_size(64) fn merge(@builtin(global_invocation_id) gid:vec3u) {
- let a=atomicLoad(&args[0].instances);let b=atomicLoad(&args[2].instances);let c=atomicLoad(&args[4].instances);
- let id=gid.x;if(id>=a+b+c){return;}
- var source=id;
- if(id>=a+b){source=21632u+id-a-b;}else if(id>=a){source=10816u+id-a;}
- items[32448u+id]=items[source];
+ let bucket=gid.x+3u;let count=atomicLoad(&args[bucket].instances);
+ atomicStore(&args[bucket].instances,count*config.counts.x);
 }
