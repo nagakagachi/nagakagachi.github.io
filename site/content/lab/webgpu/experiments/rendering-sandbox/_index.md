@@ -7,9 +7,11 @@ description: "レンダリング実験環境の概要とバージョン一覧"
 
 地形・天球・配置物を使って、シャドウやGIなどのレンダリング技法を検証する環境です。節目ごとに独立した版を保存し、過去の実装もそのまま動かせる形で残します。
 
-**最新版：[RenderingSandbox v03を開く](v03/)**
+**最新版：[RenderingSandbox v04を開く](v04/)**
 
-v03は樹木のモデリングとGPU配置・Indirect描画を追加しています。枝葉LODは未実装で、樹木・CSMは近中景の検証用範囲です。詳細は各ページに記載しています。
+v04はRust・wgpu・eguiでブラウザWebGPUとWindows DX12の描画処理を共通化し、GPU時間の計測を追加しています。
+
+v03は樹木のモデリングとGPU配置・Indirect描画を追加しています。枝葉4段LODを備え、樹木・CSMは近中景の検証用範囲です。詳細は各ページに記載しています。
 
 v02では4カスケードのShadow Map、GGX + LambertのPBR、Octahedral MapによるSplit-Sum Specular IBLを追加しています。
 

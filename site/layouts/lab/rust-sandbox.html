@@ -1,0 +1,51 @@
+{{ define "main" }}
+<style>
+body:has(.rust-sandbox-article) main.shell { max-width:none; }
+.rust-sandbox-article { max-width:none; }
+.rust-sandbox-article .article-body { max-width:860px; margin:28px auto 0; }
+.rust-sandbox-preview { max-width:525px; margin:24px auto; }
+.rust-sandbox-preview img { display:block; width:100%; height:auto; }
+.rust-sandbox-preview figcaption { color:var(--muted); font-size:13px; margin-top:8px; }
+.rust-sandbox-start { display:flex; flex-direction:column; align-items:center; gap:12px; padding:18px 0 24px; text-align:center; }
+#rust-start { min-width:180px; padding:14px 48px; border:1px solid var(--accent); border-radius:8px; background:var(--accent); color:var(--paper); font:inherit; font-size:18px; font-weight:700; cursor:pointer; }
+#rust-start:hover:not(:disabled) { filter:brightness(1.12); }
+#rust-start:focus-visible { outline:3px solid var(--ink); outline-offset:4px; }
+#rust-start:disabled { opacity:.6; cursor:default; }
+#rust-status { margin:0; }
+</style>
+<article class="article rust-sandbox-article"><header class="article-header">{{ partial "lab-breadcrumbs.html" . }}<h1>{{ .Title }}</h1></header>
+<p>学習用にAgentCodingで生成したデモです</p>
+{{ with .Params.preview }}
+  {{ with $.Resources.Get . }}
+  <figure class="rust-sandbox-preview">
+    <a href="{{ .RelPermalink }}"><img src="{{ .RelPermalink }}" width="{{ .Width }}" height="{{ .Height }}" alt="山地の地形に配置された樹木と影、青空の実行例" decoding="async"></a>
+    <figcaption>{{ $.Params.preview_caption }}</figcaption>
+  </figure>
+  {{ end }}
+{{ end }}
+<section aria-label="Rust RenderingSandbox" style="container-type:inline-size">
+<div class="rust-sandbox-start">
+<button id="rust-start" type="button">実行</button>
+<p id="rust-status" role="status">実行ボタンでRust / WebGPUを起動します</p>
+</div>
+<canvas id="rust-canvas" style="display:block;width:100%;height:max(320px,calc((100cqw - 300px) * 9 / 16 + 40px));max-height:85vh;outline:none" aria-label="Rust RenderingSandboxの描画と操作パネル" tabindex="0"></canvas>
+</section>
+<div class="article-body">{{ .Content }}</div>
+</article>
+<script type="module">
+const button = document.querySelector('#rust-start');
+const status = document.querySelector('#rust-status');
+button.addEventListener('click', async () => {
+  button.disabled = true;
+  status.textContent = 'Rust / WebGPUを初期化しています';
+  try {
+    if (!navigator.gpu) throw new Error('WebGPU対応ブラウザが必要です');
+    const module = await import('./sandbox.js');
+    await module.default();
+    module.start();
+  } catch (error) {
+    status.textContent = `起動できませんでした: ${error.message}`;
+  }
+});
+</script>
+{{ end }}

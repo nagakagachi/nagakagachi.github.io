@@ -11,3 +11,6 @@
 
 # TypeScript development dependencies
 /node_modules/
+
+# Rust workspace build artifacts
+/rendering-sandbox/target/

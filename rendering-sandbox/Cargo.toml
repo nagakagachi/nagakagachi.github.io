@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["v04"]
+default-members = ["v04"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 2
+
+[profile.dev]
+opt-level = 1

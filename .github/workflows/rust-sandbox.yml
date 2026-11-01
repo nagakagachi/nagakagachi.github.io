@@ -1,0 +1,26 @@
+name: Validate Rust sandbox
+on:
+  push:
+    paths: ['rendering-sandbox/**', 'tools/build_rust.py', '.github/workflows/rust-sandbox.yml']
+  pull_request:
+    paths: ['rendering-sandbox/**', 'tools/build_rust.py', '.github/workflows/rust-sandbox.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup toolchain install 1.99.1 --profile minimal
+      - run: cargo +1.99.1 test --manifest-path rendering-sandbox/Cargo.toml --locked --lib
+      - run: cargo +1.99.1 build --manifest-path rendering-sandbox/Cargo.toml --locked --bin sandbox-v04
+  wasm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown
+      - run: cargo +1.99.1 install wasm-bindgen-cli --version 0.2.105 --locked
+      - run: python3 tools/build_rust.py --destination "${{ runner.temp }}/sandbox-web"

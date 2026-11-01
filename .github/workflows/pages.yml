@@ -3,9 +3,9 @@ name: Build and publish site
 on:
   push:
     branches: [main]
-    paths: ['site/**', 'tools/validate_site.py', 'tools/build_site.py', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/pages.yml']
+    paths: ['rendering-sandbox/**', 'tools/build_rust.py', 'site/**', 'tools/validate_site.py', 'tools/build_site.py', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/pages.yml']
   pull_request:
-    paths: ['site/**', 'tools/validate_site.py', 'tools/build_site.py', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/pages.yml']
+    paths: ['rendering-sandbox/**', 'tools/build_rust.py', 'site/**', 'tools/validate_site.py', 'tools/build_site.py', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -40,6 +40,22 @@ jobs:
           grep " ${archive}$" checksums.txt | sha256sum --check --strict
           tar -xzf "$archive" hugo
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Check Rust publication
+        id: rust
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          page = Path('site/content/lab/webgpu/experiments/rendering-sandbox/v04/_index.md')
+          enabled = page.exists() and 'draft: true' not in page.read_text(encoding='utf-8-sig')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'enabled={str(enabled).lower()}\n')
+          PY
+      - name: Prepare Rust WebGPU build
+        if: steps.rust.outputs.enabled == 'true'
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown
+          cargo +1.99.1 install wasm-bindgen-cli --version 0.2.105 --locked
       - name: Build
         run: python3 tools/build_site.py --destination "$RUNNER_TEMP/site-public"
       - name: Upload Pages artifact
