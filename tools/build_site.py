@@ -28,12 +28,13 @@ def main():
         subprocess.run(['node', str(compiler), '--project', str(repository / 'tsconfig.json'),
                         '--outDir', str(stage / 'content')], cwd=repository, check=True)
         # 下書きのRust版は公開ビルドへ混入させない。公開時には生成を必須にする。
-        rust_page = repository / 'site/content/lab/webgpu/experiments/rendering-sandbox/v04/index.md'
-        if rust_page.exists() and (args.drafts or 'draft: true' not in rust_page.read_text(encoding='utf-8-sig')):
-            generated = build_rust(Path(temporary) / 'rust-web')
-            destination_bundle = stage / 'content/lab/webgpu/experiments/rendering-sandbox/v04'
-            for asset in ('sandbox.js', 'sandbox_bg.wasm'):
-                shutil.copy2(generated / asset, destination_bundle / asset)
+        for version in ('v04', 'v05'):
+            bundle = Path('content/lab/webgpu/experiments/rendering-sandbox') / version
+            rust_page = repository / 'site' / bundle / 'index.md'
+            if rust_page.exists() and (args.drafts or 'draft: true' not in rust_page.read_text(encoding='utf-8-sig')):
+                generated = build_rust(Path(temporary) / f'rust-web-{version}', version)
+                for asset in ('sandbox.js', 'sandbox_bg.wasm'):
+                    shutil.copy2(generated / asset, stage / bundle / asset)
         command = [args.hugo, '--source', str(stage), '--destination', str(destination),
                    '--cacheDir', str(Path(temporary) / 'cache'), '--noBuildLock',
                    '--cleanDestinationDir', '--minify', '--panicOnWarning']

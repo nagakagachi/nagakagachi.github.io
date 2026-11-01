@@ -1,10 +1,10 @@
 ﻿# Rust RenderingSandbox
 
-- v04/はv04の製品ソースの正本。将来の版は別crateへ追加し、公開済み版を暗黙に更新しない。共有workspaceには固定toolchainとCargo.lockを置く。
+- v04/とv05/は各版の製品ソースの正本。将来の版は別crateへ追加し、公開済み版を暗黙に更新しない。共有workspaceには固定toolchainとCargo.lockを置く。
 - Rust・WGSL・設定ファイルはUTF-8 BOMなし・CRLF。MarkdownはUTF-8 BOM付き・CRLF。コードコメントは日本語。
 - WebGL/Glow/GLESを有効にしない。実行はWebGPUとWindows DX12。Features/Limitsで能力を確認する。
 - 共通レンダラはegui/DOMに依存しない。ウィンドウ・入力・非同期起床・Surfaceとegui合成はhost層が担当する。
-- ZPre→CSM→Forward HDR→PostProcess→egui。共通ZOnly、Reversed Z、PreExposureを維持。opaqueのPSにdiscard/clip/深度出力を入れない。
+- ZPre→深度を参照する処理（v05のScreen Shadow Trace等）→CSM→Forward HDR→PostProcess→egui。共通ZOnly、Reversed Z、PreExposureを維持。opaqueのPSにdiscard/clip/深度出力を入れない。
 - GPU配置・カリング・LOD・Indirectの決定をCPU読み戻しへ移さない。Modelerの静的配置と初期モデル生成はCPUでよい。
 - グローバルAtomicはSubgroup/Workgroup圧縮後の予約に限定。可視リスト容量は候補数×LOD数を必ず覆う。
 - CPU/GPUの共有構造体はrepr(C)とPodに加えサイズ/オフセットのテストを持つ。バッファ更新・使用フラグを明示する。

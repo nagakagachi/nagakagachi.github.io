@@ -7,8 +7,9 @@ from fontTools.ttLib import TTFont
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('source', type=Path)
+parser.add_argument('--version', choices=['v04','v05'], default='v04')
 args = parser.parse_args()
-root = Path(__file__).resolve().parents[1] / 'rendering-sandbox' / 'v04'
+root = Path(__file__).resolve().parents[1] / 'rendering-sandbox' / args.version
 font = instantiateVariableFont(TTFont(args.source), {'wght': 400}, inplace=True)
 text = ''.join(p.read_text(encoding='utf-8') for p in (root / 'src').rglob('*.rs'))
 text += ''.join(chr(i) for i in range(32, 127)) + ''.join(chr(i) for i in range(0x3000, 0x3100))

@@ -14,8 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: rustup toolchain install 1.99.1 --profile minimal
-      - run: cargo +1.99.1 test --manifest-path rendering-sandbox/Cargo.toml --locked --lib
-      - run: cargo +1.99.1 build --manifest-path rendering-sandbox/Cargo.toml --locked --bin sandbox-v04
+      - run: cargo +1.99.1 test --manifest-path rendering-sandbox/Cargo.toml --locked --workspace --lib
+      - run: cargo +1.99.1 build --manifest-path rendering-sandbox/Cargo.toml --locked --workspace --bins
   wasm:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -24,3 +24,4 @@ jobs:
       - run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown
       - run: cargo +1.99.1 install wasm-bindgen-cli --version 0.2.105 --locked
       - run: python3 tools/build_rust.py --destination "${{ runner.temp }}/sandbox-web"
+      - run: python3 tools/build_rust.py --version v05 --destination "${{ runner.temp }}/sandbox-web-v05"

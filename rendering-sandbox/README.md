@@ -1,6 +1,6 @@
 ﻿# RenderingSandboxのRust実装
 
-版ごとに独立したcrateを置くCargo workspace。v04の正本はv04/であり、公開済みv03のTypeScriptは変更しない。将来の版から実行時に過去版のソースを参照しない。
+版ごとに独立したcrateを置くCargo workspace。v04の正本はv04/、v05の正本はv05/であり、公開済みv03のTypeScriptは変更しない。将来の版から実行時に過去版のソースを参照しない。
 
 ## 実行
 
@@ -20,7 +20,9 @@ cargo +1.99.1 install wasm-bindgen-cli --version 0.2.105 --locked
 python tools/build_rust.py --destination <リポジトリ外の作業用出力先>
 ```
 
-サイト全体は従来のtools/build_site.pyを使う。--draftsではv04もWasm生成し、site/contentの一時コピーにJS/Wasmを配置する。通常の公開ビルドはv04が下書きの間はRust生成を省略する。v04のdraftを解除するとRust生成が必須になり、Pages Actionsもツールを準備する。生成JS/Wasmはコミットしない。
+サイト全体はtools/build_site.pyを使う。公開するRust版のWasmを生成し、site/contentの一時コピーへJS/Wasmを配置する。--draftsでは下書きの版も生成する。生成JS/Wasmはコミットしない。版を個別に生成するときはtools/build_rust.py --version v05のように指定する。
+
+v05のScreen Space Shadow・GPU統計・既知のTODOは[v05/README.md](v05/README.md)を参照。以下はv04から引き継ぐ基礎構成を説明する。
 
 本セッションでは既存環境を変更しないため、RustはOS一時ディレクトリのnagamushi-rust-tools/{cargo,rustup}へ導入した。通常のcargoがPATHにない場合はこのディレクトリとCARGO_HOME/RUSTUP_HOMEを指定する。ユーザーのグローバルPATHやRust設定は変更していない。
 

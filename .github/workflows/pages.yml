@@ -46,8 +46,8 @@ jobs:
           python3 - <<'PY'
           import os
           from pathlib import Path
-          page = Path('site/content/lab/webgpu/experiments/rendering-sandbox/v04/index.md')
-          enabled = page.exists() and 'draft: true' not in page.read_text(encoding='utf-8-sig')
+          pages = [Path(f'site/content/lab/webgpu/experiments/rendering-sandbox/{version}/index.md') for version in ('v04', 'v05')]
+          enabled = any(page.exists() and 'draft: true' not in page.read_text(encoding='utf-8-sig') for page in pages)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'enabled={str(enabled).lower()}\n')
           PY

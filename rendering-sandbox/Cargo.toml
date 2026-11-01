@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["v04"]
+members = ["v04", "v05"]
 default-members = ["v04"]
 
 [profile.release]
