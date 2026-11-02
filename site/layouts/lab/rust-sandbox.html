@@ -26,6 +26,7 @@ body:has(.rust-sandbox-article) main.shell { max-width:none; }
 <section aria-label="Rust RenderingSandbox" style="container-type:inline-size">
 <div class="rust-sandbox-start">
 <button id="rust-start" type="button">実行</button>
+{{ if .Params.view_copy }}<button id="rust-copy" type="button" disabled>ビュー画像をコピー</button>{{ end }}
 <p id="rust-status" role="status">実行ボタンでRust / WebGPUを起動します</p>
 </div>
 <canvas id="rust-canvas" style="display:block;width:100%;height:max(320px,calc((100cqw - 300px) * 9 / 16 + 40px));max-height:85vh;outline:none" aria-label="Rust RenderingSandboxの描画と操作パネル" tabindex="0"></canvas>
@@ -35,6 +36,63 @@ body:has(.rust-sandbox-article) main.shell { max-width:none; }
 <script type="module">
 const button = document.querySelector('#rust-start');
 const status = document.querySelector('#rust-status');
+let sandboxModule;
+{{ if .Params.view_copy }}
+const copyButton = document.querySelector('#rust-copy');
+const canvas = document.querySelector('#rust-canvas');
+let copying = false;
+// コピー対象は現在表示しているビュー。設定パネルと操作説明は含めない。
+const observer = new MutationObserver(() => {
+  copyButton.disabled = copying || !canvas.hasAttribute('data-view-rect');
+});
+observer.observe(canvas, { attributes: true, attributeFilter: ['data-view-rect'] });
+copyButton.addEventListener('click', async () => {
+  if (copying) return;
+  copying = true;
+  copyButton.disabled = true;
+  try {
+    if (!navigator.clipboard?.write || !window.ClipboardItem) {
+      throw new Error('このブラウザでは画像コピーを利用できません');
+    }
+    if (!sandboxModule) throw new Error('ビューの起動を待ってください');
+    // writeはクリック内で開始する。描画フレーム内の画像確保をPromiseで待つ。
+    const png = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => finish(new Error('画像取得がタイムアウトしました')), 10000);
+      const finish = (error, blob) => {
+        clearTimeout(timeout);
+        window.rustCaptureView = () => {};
+        if (error) reject(error);
+        else resolve(blob);
+      };
+      window.rustCaptureView = (x, y, width, height) => {
+        try {
+          const left = Math.max(0, Math.round(x * canvas.width));
+          const top = Math.max(0, Math.round(y * canvas.height));
+          const w = Math.min(canvas.width - left, Math.round(width * canvas.width));
+          const h = Math.min(canvas.height - top, Math.round(height * canvas.height));
+          if (w < 1 || h < 1) throw new Error('コピーできるビューがありません');
+          const image = document.createElement('canvas');
+          image.width = w;
+          image.height = h;
+          const context = image.getContext('2d');
+          if (!context) throw new Error('画像の作成に失敗しました');
+          // WebGPUの表示バッファが破棄される前に、画像を保持するCanvasへ移す。
+          context.drawImage(canvas, left, top, w, h, 0, 0, w, h);
+          image.toBlob(blob => finish(blob ? null : new Error('PNGへの変換に失敗しました'), blob), 'image/png');
+        } catch (error) { finish(error); }
+      };
+      sandboxModule.request_view_copy();
+    });
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+    status.textContent = 'ビュー画像をコピーしました';
+  } catch (error) {
+    status.textContent = `コピーできませんでした: ${error.message}`;
+  } finally {
+    copying = false;
+    copyButton.disabled = !canvas.hasAttribute('data-view-rect');
+  }
+});
+{{ end }}
 button.addEventListener('click', async () => {
   button.disabled = true;
   status.textContent = 'Rust / WebGPUを初期化しています';
@@ -42,6 +100,7 @@ button.addEventListener('click', async () => {
     if (!navigator.gpu) throw new Error('WebGPU対応ブラウザが必要です');
     const module = await import('./sandbox.js');
     await module.default();
+    sandboxModule = module;
     module.start();
   } catch (error) {
     status.textContent = `起動できませんでした: ${error.message}`;

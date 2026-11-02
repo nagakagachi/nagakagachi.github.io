@@ -13,8 +13,28 @@ use winit::{
     window::{Window, WindowId},
 };
 
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static COPY_PROXY: std::cell::RefCell<Option<EventLoopProxy<Event>>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(target_arch = "wasm32")]
+pub fn request_view_copy() {
+    COPY_PROXY.with(|p| {
+        if let Some(proxy) = p.borrow().as_ref() {
+            let _ = proxy.send_event(Event::CopyView);
+        }
+    });
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = window, js_name = rustCaptureView)]
+    fn capture_view(x: f32, y: f32, width: f32, height: f32);
+}
 #[derive(Debug)]
 enum Event {
+    #[cfg(target_arch = "wasm32")]
+    CopyView,
     Ready,
     Wake,
     #[cfg(not(target_arch = "wasm32"))]
@@ -48,6 +68,10 @@ struct State {
     renderer: Renderer,
     profiler: GpuProfiler,
     image: egui::TextureId,
+    #[cfg(target_arch = "wasm32")]
+    copy_rect: Option<[f32; 4]>,
+    #[cfg(target_arch = "wasm32")]
+    copy_requested: bool,
     settings: Settings,
     camera: Camera,
     modeler: bool,
@@ -147,6 +171,13 @@ impl ApplicationHandler<Event> for App {
                     .and_then(|d| d.get_element_by_id("rust-status"))
                 {
                     el.set_text_content(Some("起動済み — 操作・設定はビュー内のeguiにあります"));
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            Event::CopyView => {
+                if let Some(s) = &mut self.state {
+                    s.copy_requested = true;
+                    s.window.request_redraw();
                 }
             }
             Event::Metrics => {
@@ -364,6 +395,10 @@ impl State {
             model: crate::models::ModelSettings::default(),
             measure: true,
             metrics_only: false,
+            #[cfg(target_arch = "wasm32")]
+            copy_rect: None,
+            #[cfg(target_arch = "wasm32")]
+            copy_requested: false,
             continuous: true,
             resolution: resolution::Resolution::Auto,
             occluded: false,
@@ -379,6 +414,8 @@ impl State {
         self.renderer.screen.collect();
         let raw = self.input.take_egui_input(&self.window);
         let mut pixels = [1, 1];
+        #[cfg(target_arch = "wasm32")]
+        let mut copy_rect = egui::Rect::NOTHING;
         let mut moving = false;
         let mut hovered = false;
         let mut drag = egui::Vec2::ZERO;
@@ -404,6 +441,10 @@ impl State {
                 );
                 let offset = (available - size) * 0.5;
                 let rect = egui::Rect::from_min_size(ui.cursor().min + offset, size);
+                #[cfg(target_arch = "wasm32")]
+                {
+                    copy_rect = rect;
+                }
                 let response = ui.put(
                     rect,
                     egui::Image::new((self.image, size)).sense(egui::Sense::click_and_drag()),
@@ -573,6 +614,40 @@ impl State {
         self.renderer.screen.submitted(move || {
             let _ = screen_wake.send_event(Event::Metrics);
         });
+        #[cfg(target_arch = "wasm32")]
+        {
+            // ブラウザ側で設定パネルを除外してコピーするため、表示領域だけを共有する。
+            // 正規化座標なのでCSS拡大率やDPRに依存せず、変更時だけDOMを更新する。
+            let scale = output.pixels_per_point;
+            let rect = [
+                copy_rect.min.x * scale / self.config.width as f32,
+                copy_rect.min.y * scale / self.config.height as f32,
+                copy_rect.width() * scale / self.config.width as f32,
+                copy_rect.height() * scale / self.config.height as f32,
+            ];
+            // Present後のCanvas保持に依存せず、このフレームの画像を確保する。
+            // JS側はここで2D Canvasへコピーし、PNG変換だけを非同期に進める。
+            if self.copy_requested {
+                self.copy_requested = false;
+                capture_view(rect[0], rect[1], rect[2], rect[3]);
+            }
+            if self.copy_rect != Some(rect) {
+                if let Some(canvas) = web_sys::window()
+                    .and_then(|w| w.document())
+                    .and_then(|d| d.get_element_by_id("rust-canvas"))
+                {
+                    if canvas
+                        .set_attribute(
+                            "data-view-rect",
+                            &format!("{},{},{},{}", rect[0], rect[1], rect[2], rect[3]),
+                        )
+                        .is_ok()
+                    {
+                        self.copy_rect = Some(rect);
+                    }
+                }
+            }
+        }
         frame.present();
         for id in &output.textures_delta.free {
             self.gui.free_texture(id);
@@ -596,6 +671,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_arch = "wasm32")]
     {
         use winit::platform::web::EventLoopExtWebSys;
+        COPY_PROXY.with(|p| *p.borrow_mut() = Some(app.proxy.clone()));
         event_loop.spawn_app(app);
     }
     #[cfg(not(target_arch = "wasm32"))]

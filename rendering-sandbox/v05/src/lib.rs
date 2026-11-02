@@ -21,6 +21,12 @@ pub fn start() -> Result<(), wasm_bindgen::JsValue> {
     run().map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))
 }
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn request_view_copy() {
+    host::request_view_copy();
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub fn smoke() -> Result<(), Box<dyn std::error::Error>> {
     pollster::block_on(async {

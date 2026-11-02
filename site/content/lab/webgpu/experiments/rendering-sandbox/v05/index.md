@@ -1,9 +1,10 @@
 ﻿---
 title: "RenderingSandbox v05"
 date: "2026-11-01"
-lastmod: "2026-11-02"
+lastmod: "2026-11-03"
 draft: false
 layout: "rust-sandbox"
+view_copy: true
 preview: "preview.webp"
 preview_caption: "実行時の表示例（Windows版・視点を調整）"
 preview_alt: "Screen Space Shadowを有効にした地形・樹木・影の実行例"
@@ -11,6 +12,8 @@ description: "Screen Space ShadowのベースラインとGPU計測・比較環�
 ---
 
 CSMで不足する近距離のコンタクトと、CSMが届かない遠距離の影を、メインビューの深度を使うScreen Space Shadowで補います。距離対応と旧来の固定レイを切り替え、品質とコストを比較できます。
+
+「ビュー画像をコピー」で、設定パネルを除いた現在の表示をPNG画像としてクリップボードへコピーできます。画像はブラウザ内で作成し、サーバーへ送信しません。コピーにはブラウザのクリップボード利用許可が必要です。
 
 ## Screen Space Shadow
 
