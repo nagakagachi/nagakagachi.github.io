@@ -2,7 +2,7 @@
 title: "RenderingSandbox v05"
 date: "2026-11-01"
 lastmod: "2026-11-03"
-draft: false
+draft: true
 layout: "rust-sandbox"
 view_copy: true
 preview: "preview.webp"
