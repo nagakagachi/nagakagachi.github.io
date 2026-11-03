@@ -16,7 +16,7 @@ pub struct Settings {
     pub steps: u32,
     pub length: f32,
     pub thickness: f32,
-    pub bias: f32,
+    pub camera_bias_percent: f32,
     pub counters: bool,
     pub mode: u32,
     pub debug: u32,
@@ -33,12 +33,12 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             divisor: 1,
             steps: 16,
             length: 64.,
             thickness: 0.2,
-            bias: 0.02,
+            camera_bias_percent: 0.01,
             counters: false,
             mode: 0,
             debug: 0,
@@ -57,9 +57,8 @@ impl Default for Settings {
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Params {
-    inverse: [[f32; 4]; 4],
-    matrix: [[f32; 4]; 4],
-    light: [f32; 4],
+    projection: [f32; 4],
+    light_view: [f32; 4],
     trace: [f32; 4],
     dimensions: [u32; 4],
     options: [u32; 4],
@@ -222,16 +221,19 @@ impl ScreenShadow {
         timer: &mut GpuProfiler,
     ) {
         let v = &s.screen_shadow;
-        let matrix = c.matrix(full[0] as f32 / full[1] as f32, s.fov);
+        let cot_half_fov = 1. / (s.fov.to_radians() * 0.5).tan();
+        let forward = c.forward();
+        let right = glam::Vec3::new(c.yaw.cos(), 0., -c.yaw.sin());
+        let up = right.cross(forward);
+        let light = crate::scene::light(s);
         let data = Params {
-            inverse: matrix.inverse().to_cols_array_2d(),
-            matrix: matrix.to_cols_array_2d(),
-            light: crate::scene::light(s).extend(0.).to_array(),
-            trace: [v.length, v.thickness, v.bias, 0.],
+            projection: [cot_half_fov / (full[0] as f32 / full[1] as f32), cot_half_fov, 0., 0.],
+            light_view: [light.dot(right), light.dot(up), -light.dot(forward), 0.],
+            trace: [v.length, v.thickness, v.camera_bias_percent * 0.01, 0.],
             dimensions: [full[0], full[1], self.size[0], self.size[1]],
             options: [
                 v.enabled as u32,
-                v.steps.clamp(1, 16),
+                v.steps.clamp(1, 64),
                 v.counters as u32,
                 v.mode,
             ],
@@ -588,9 +590,9 @@ mod tests {
     use super::*;
     #[test]
     fn params_and_small_dimensions() {
-        assert_eq!(std::mem::size_of::<Params>(), 240);
-        assert_eq!(std::mem::offset_of!(Params, adaptive), 208);
-        assert_eq!(std::mem::offset_of!(Params, contact), 224);
+        assert_eq!(std::mem::size_of::<Params>(), 128);
+        assert_eq!(std::mem::offset_of!(Params, adaptive), 96);
+        assert_eq!(std::mem::offset_of!(Params, contact), 112);
         assert_eq!(dimensions([1920, 1080], 4), [480, 270]);
         assert_eq!(dimensions([17, 9], 4), [5, 3]);
         assert_eq!(dimensions([1, 1], 4), [1, 1]);

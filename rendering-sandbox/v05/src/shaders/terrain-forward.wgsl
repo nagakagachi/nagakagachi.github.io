@@ -11,12 +11,15 @@ struct Lighting {
     shadow: vec4f, // 有効、比較時深度バイアスm、法線バイアスm、1/解像度。
     shadowFilter: vec4f, // PCF半径、影の可視化、CSM格子のテクセル間隔（0はOFF）、予約。
     skyDiffuse: vec4f, // RGBは固定アルベド、WはSH Diffuse強度。
-    cameraPosition: vec4f, // ワールドカメラXYZ、Wは予約。
-    atmosphere: vec4f, // 大気遠近法有効、基準高度、固定アルベド有効、予約。
+    cameraPosition: vec4f, // ワールドカメラXYZ、WはPolarShadowCacheの内半径[m]。
+    atmosphere: vec4f, // 大気遠近法有効、基準高度、固定アルベド有効、円盤表示オフセット[m]。
     shadowMatrices: array<mat4x4f,4>,
     splits: vec4f,
     viewForward: vec4f,
     material: vec4f, // roughness、metallic、Specular IBL有効、CSM色分け。
+    polar: vec4f, // 外半径[m]、格子の有効化、地形への適用、キャスターバイアス上限[m]。
+    inverseViewProjection: mat4x4f,
+    polarSampling: vec4u, // 角度・半径の解像度、PCFの有効化、表面格子とCSM転写のフラグ。
 }
 @group(1) @binding(0) var<uniform> lighting: Lighting;
 @group(1) @binding(1) var shadowMap: texture_depth_2d;
@@ -116,6 +119,9 @@ fn heightGridLine(xz: vec2f, layer: u32) -> f32 {
 // 不透明PSにdiscard/clip、深度出力、Storage書込は置かない。
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+    if ((lighting.polarSampling.w & 1u) != 0u) {
+        return vec4f(preExposeRadiance(polarSurfaceGrid(input.worldPosition), cameraFrame), 1.0);
+    }
     if (scene.domain.w != 0.0 || scene.terrain.w != 0.0) {
         // 法線として正規化せず、標高混合率で補間した段の識別色をそのまま表示する。
         var color = select(vec3f(0.65), input.normal, scene.domain.w != 0.0);
@@ -154,7 +160,10 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     }
     let n = normalize(input.normal);
     if (scene.elevation.z != 0.0) { return vec4f(preExposeRadiance(n * 0.5 + 0.5, cameraFrame), 1.0); }
-    let visibility = combinedVisibility(shadowVisibility(input.worldPosition, n), input.clip.xy);
+    let visibility = min(
+        combinedVisibility(shadowVisibility(input.worldPosition, n), input.clip.xy),
+        polarShadowVisibility(input.worldPosition),
+    );
     if (lighting.shadowFilter.y != 0.0) { return vec4f(preExposeRadiance(vec3f(visibility), cameraFrame), 1.0); }
     let t = clamp((input.height - scene.elevation.x) * scene.elevation.y, 0.0, 1.0);
     if (scene.elevation.w != 0.0) { return vec4f(preExposeRadiance(tileColor(input.tileID), cameraFrame), 1.0); }

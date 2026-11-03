@@ -5,7 +5,7 @@
 var<workgroup> partial: array<vec4u, 64>;
 
 // 深度はInfinity-far Reversed Z、near=1m。比較の厚みはビューZのm単位。
-// ワールド空間の各サンプルを投影する。距離対応OFFは旧来の等間隔・固定厚み。
+// 始点とライト方向をView空間で扱い、投影スケールから各サンプルの画面位置を求める。
 // スクリーン上の整数画素から求めるIGN。フレーム番号を含めず、静止時は固定する。
 // Jorge Jimenez, Next Generation Post Processing in Call of Duty: Advanced Warfare (2014)
 fn interleavedGradientNoise(pixel: vec2u) -> f32 {
@@ -18,9 +18,12 @@ fn tracePixel(id: vec2u) -> vec4f {
     let raw = textureLoad(depthMap, vec2i(originPixel), 0);
     if (raw <= 0.0) { return vec4f(1, 0, 0, 1); }
     let uv = (vec2f(originPixel) + 0.5) / vec2f(full);
-    let h = ss.inverseViewProjection * vec4f(uv * vec2f(2, -2) + vec2f(-1, 1), raw, 1);
-    let origin = h.xyz / h.w;
+    let ndc = uv * vec2f(2, -2) + vec2f(-1, 1);
     let viewZ = 1.0 / raw;
+    var originView = vec3f(ndc.x * viewZ / ss.projectionScale.x,
+                           ndc.y * viewZ / ss.projectionScale.y, -viewZ);
+    // View空間の原点へ始点を寄せ、深度面からカメラ方向へ離す。
+    originView *= 1.0 - ss.trace.z;
     // 初期区間は視点距離に関係なく固定幅。その後の二次配置だけを遠方へ広げる。
     // 全区間を単純にスケールすると、最初のサンプルから接触部分を飛び越えるため。
     let adaptive = ss.adaptive.x != 0.0;
@@ -46,40 +49,44 @@ fn tracePixel(id: vec2u) -> vec4f {
                 hi = prefixLength+(rayLength-prefixLength)*b*b;
             }
         }
-        let distance = ss.trace.z + mix(lo, hi, phase);
+        let distance = mix(lo, hi, phase);
         // 近い数ステップには遠景用の厚みを使わず、コンタクトの過剰な太りを抑える。
         // 後半は視点距離とサンプル区間幅の両方へ追従し、上限で誤遮蔽を制限する。
         var thickness = ss.trace.y;
         if (adaptive && i >= prefixCount) {
             thickness = min(ss.adaptive.w, baseThickness+(hi-lo)*ss.contact.z);
         }
-        let clip = ss.viewProjection * vec4f(origin + ss.light.xyz * distance, 1);
-        if (clip.w < 1.0 || clip.z < 0.0 || clip.z > clip.w) {
-            return vec4f(1, f32(taps) / 16.0, 3.0 / 255.0, 1);
+        let rayView = originView + ss.lightView.xyz * distance;
+        let rayViewZ = -rayView.z;
+        if (rayViewZ < 1.0) {
+            continue;
         }
-        let sampleUV = clip.xy / clip.w * vec2f(0.5, -0.5) + 0.5;
+        let sampleNdc = rayView.xy / rayViewZ * ss.projectionScale.xy;
+        let sampleUV = sampleNdc * vec2f(0.5, -0.5) + 0.5;
         if (any(sampleUV < vec2f(0)) || any(sampleUV >= vec2f(1))) {
-            return vec4f(1, f32(taps) / 16.0, 3.0 / 255.0, 1);
+            return vec4f(1, f32(taps) / 64.0, 3.0 / 255.0, 1);
         }
         let pixel = vec2u(sampleUV * vec2f(full));
         if (all(pixel == originPixel)) { continue; }
         let sampleRaw = textureLoad(depthMap, vec2i(pixel), 0);
         taps++;
         if (sampleRaw > 0.0) {
-            let difference = clip.w - 1.0 / sampleRaw;
-            // 高いビューZでも深度復元誤差を自己遮蔽と誤認しないための丸め誤差幅。
-            let epsilon = max(0.0001, (1.0 / sampleRaw)*0.000002);
-            if (difference > epsilon && difference < thickness) {
+            let surfaceViewZ = 1.0 / sampleRaw;
+            let rayBehindSurface = rayViewZ - surfaceViewZ;
+            // 正の差だけを採用する。レイが表面より手前なら負値となり、ヒットしない。
+            // 高いビューZでも復元誤差を自己遮蔽と誤認しないよう、最小差を設ける。
+            let epsilon = max(0.0001, surfaceViewZ * 0.000002);
+            if (rayBehindSurface > epsilon && rayBehindSurface < thickness) {
                 // 画面端では遮蔽情報が急に失われるため、8pxの範囲で弱める。
                 let edge = min(min(sampleUV.x, 1.0-sampleUV.x)*f32(full.x),
                                min(sampleUV.y, 1.0-sampleUV.y)*f32(full.y));
                 let visibility = 1.0-smoothstep(0.0, 8.0, edge);
                 let contactVisibility = select(1.0, visibility, adaptive && i < prefixCount);
-                return vec4f(visibility, f32(taps)/16.0, 1.0/255.0, contactVisibility);
+                return vec4f(visibility, f32(taps)/64.0, 1.0/255.0, contactVisibility);
             }
         }
     }
-    return vec4f(1, f32(taps) / 16.0, 2.0 / 255.0, 1);
+    return vec4f(1, f32(taps) / 64.0, 2.0 / 255.0, 1);
 }
 
 @compute @workgroup_size(8, 8)

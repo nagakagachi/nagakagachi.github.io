@@ -18,6 +18,9 @@ struct Lighting {
     splits: vec4f,
     viewForward: vec4f,
     material: vec4f, // roughness、metallic、Specular IBL有効、CSM色分け。
+    polar: vec4f, // 外半径[m]、格子の有効化、直射光への適用、キャスターバイアス上限[m]。
+    inverseViewProjection: mat4x4f,
+    polarSampling: vec4u, // 角度・半径の解像度、PCFの有効化、表面格子とCSM転写のフラグ。
 }
 @group(1) @binding(0) var<uniform> lighting: Lighting;
 @group(1) @binding(1) var shadowMap: texture_depth_2d;
@@ -96,10 +99,16 @@ fn heightGridLine(xz: vec2f, layer: u32) -> f32 {
 // 不透明PSにdiscard/clip、深度出力、Storage書込は置かない。
 @fragment
 fn fragmentMain(input: VertexOutput, @builtin(front_facing) front:bool) -> @location(0) vec4f {
+    if ((lighting.polarSampling.w & 1u) != 0u) {
+        return vec4f(preExposeRadiance(polarSurfaceGrid(input.worldPosition), cameraFrame), 1.0);
+    }
     if(meshInfo.debug.x!=0u){return vec4f(preExposeRadiance(input.color,cameraFrame),1);}
     let n = normalize(input.normal)*select(-1.0,1.0,front);
     if (scene.elevation.z != 0.0) { return vec4f(preExposeRadiance(n * 0.5 + 0.5, cameraFrame), 1.0); }
-    let visibility = combinedVisibility(shadowVisibility(input.worldPosition, n), input.clip.xy);
+    let visibility = min(
+        combinedVisibility(shadowVisibility(input.worldPosition, n), input.clip.xy),
+        polarShadowVisibility(input.worldPosition),
+    );
     if (lighting.shadowFilter.y != 0.0) { return vec4f(preExposeRadiance(vec3f(visibility), cameraFrame), 1.0); }
     let t = clamp((input.height - scene.elevation.x) * scene.elevation.y, 0.0, 1.0);
 

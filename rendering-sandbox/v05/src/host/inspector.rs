@@ -270,8 +270,67 @@ impl super::State {
                         "ShadowCasterVolumeCulling",
                     );
                 });
+                ui.collapsing("PolarShadowCache", |ui| {
+                    ui.checkbox(&mut self.settings.polar_enabled, "有効");
+                    ui.checkbox(&mut self.settings.polar_apply_shadow, "シェーディングに適用");
+                    ui.add_enabled_ui(self.settings.polar_source_main_depth, |ui| {
+                        ui.checkbox(&mut self.settings.polar_caster_bias, "MainViewDepthのキャスターバイアス");
+                        ui.add_enabled(
+                            self.settings.polar_caster_bias,
+                            egui::Slider::new(&mut self.settings.polar_depth_bias, 0.0..=64.0)
+                                .text("キャスターバイアス上限 m"),
+                        );
+                    });
+                    ui.checkbox(&mut self.settings.polar_source_csm, "CSMをソースに使う");
+                    ui.checkbox(&mut self.settings.polar_source_main_depth, "MainViewDepthBufferをソースに使う");
+                    ui.add(
+                        egui::Slider::new(&mut self.settings.polar_outer_radius, 128.0..=16000.0)
+                            .logarithmic(true)
+                            .text("外半径 m"),
+                    );
+                    ui.checkbox(&mut self.settings.polar_inner_follow_csm, "内半径をCSM距離に合わせる");
+                    ui.add_enabled(
+                        !self.settings.polar_inner_follow_csm,
+                        egui::Slider::new(&mut self.settings.polar_inner_radius, 0.0..=15999.0)
+                            .text("内半径 m"),
+                    );
+                    let inner = self.settings.polar_effective_inner_radius();
+                    let outer = self.settings.polar_outer_radius;
+                    ui.label(format!("半径方向のワールド範囲: {inner:.0} ～ {outer:.0} m"));
+                    for (axis, label) in ["角度方向の解像度", "半径方向の解像度"].into_iter().enumerate() {
+                        egui::ComboBox::from_label(label)
+                            .selected_text(format!("{} テクセル", self.settings.polar_size[axis]))
+                            .show_ui(ui, |ui| {
+                                for size in [1024, 2048, 3072, 4096] {
+                                    ui.selectable_value(&mut self.settings.polar_size[axis], size, size.to_string());
+                                }
+                            });
+                    }
+                    ui.checkbox(&mut self.settings.polar_pcf, "PCF");
+                    ui.collapsing("デバッグ", |ui| {
+                        ui.checkbox(&mut self.settings.polar_surface_grid, "地形・樹木のテクセル格子（16テクセル間隔）");
+                        ui.checkbox(&mut self.settings.polar_shadow_grid, "ワールド空間でディスク表示");
+                        ui.add_enabled_ui(self.settings.polar_shadow_grid, |ui| {
+                            ui.checkbox(&mut self.settings.polar_shadow_xray, "深度テスト無効");
+                            ui.add(
+                                egui::Slider::new(&mut self.settings.polar_debug_offset, -16000.0..=16000.0)
+                                    .text("表示オフセット m（光の進行方向）"),
+                            );
+                        });
+                        ui.checkbox(&mut self.settings.polar_overlay, "画面上に表示");
+                        ui.add_enabled_ui(self.settings.polar_overlay, |ui| {
+                            ui.add(egui::Slider::new(&mut self.settings.polar_overlay_scale, 0.5..=3.0).text("表示スケール"));
+                            ui.radio_value(&mut self.settings.polar_overlay_disk, true, "円盤");
+                            ui.radio_value(&mut self.settings.polar_overlay_disk, false, "2Dテクスチャ");
+                        });
+                        ui.add_enabled(
+                            self.settings.polar_shadow_grid || self.settings.polar_overlay,
+                            egui::Checkbox::new(&mut self.settings.polar_debug_texels, "テクセル格子を表示"),
+                        );
+                    });
+                });
                 egui::CollapsingHeader::new("Screen Space Shadow")
-                    .default_open(true)
+                    .default_open(false)
                     .show(ui, |ui| {
                         let p = &mut self.settings.screen_shadow;
                         ui.checkbox(&mut p.enabled, "Screen Space Shadowを有効化");
@@ -290,7 +349,7 @@ impl super::State {
                         egui::ComboBox::from_label("ステップ数")
                             .selected_text(p.steps.to_string())
                             .show_ui(ui, |ui| {
-                                for value in [4, 8, 16] {
+                                for value in [4, 8, 16, 32, 64] {
                                     ui.selectable_value(&mut p.steps, value, value.to_string());
                                 }
                             });
@@ -305,9 +364,9 @@ impl super::State {
                                 .text("厚み m"),
                         );
                         ui.add(
-                            egui::Slider::new(&mut p.bias, 0.01..=10.0)
-                                .logarithmic(true)
-                                .text("始点バイアス m"),
+                            egui::Slider::new(&mut p.camera_bias_percent, 0.0..=0.1)
+                                .custom_formatter(|value, _| format!("{value:.3}%"))
+                                .text("カメラ方向の始点バイアス"),
                         );
                         ui.checkbox(&mut p.adaptive, "距離に応じてレイ長・厚みを変更");
                         ui.collapsing("距離とサンプル配置", |ui| {
@@ -436,7 +495,7 @@ impl super::State {
             egui::ComboBox::from_label("タイル密度")
                 .selected_text(self.settings.density.to_string())
                 .show_ui(ui, |ui| {
-                    for n in [4, 8, 16] {
+                    for n in [4, 8, 16, 32, 64] {
                         ui.selectable_value(&mut self.settings.density, n, n.to_string());
                     }
                 });

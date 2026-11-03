@@ -18,6 +18,25 @@ pub struct Settings {
     pub tile_colors: bool,
     pub height_colors: bool,
     pub height_grid: bool,
+    pub polar_shadow_grid: bool,
+    pub polar_shadow_xray: bool,
+    pub polar_debug_offset: f32,
+    pub polar_overlay: bool,
+    pub polar_overlay_disk: bool,
+    pub polar_overlay_scale: f32,
+    pub polar_inner_radius: f32,
+    pub polar_outer_radius: f32,
+    pub polar_source_csm: bool,
+    pub polar_size: [u32; 2],
+    pub polar_pcf: bool,
+    pub polar_enabled: bool,
+    pub polar_apply_shadow: bool,
+    pub polar_caster_bias: bool,
+    pub polar_depth_bias: f32,
+    pub polar_source_main_depth: bool,
+    pub polar_debug_texels: bool,
+    pub polar_surface_grid: bool,
+    pub polar_inner_follow_csm: bool,
     pub azimuth: f32,
     pub elevation: f32,
     pub direct: bool,
@@ -70,6 +89,25 @@ impl Default for Settings {
             tile_colors: false,
             height_colors: false,
             height_grid: false,
+            polar_shadow_grid: false,
+            polar_shadow_xray: false,
+            polar_debug_offset: 512.0,
+            polar_overlay: false,
+            polar_overlay_disk: true,
+            polar_overlay_scale: 1.0,
+            polar_inner_radius: 0.0,
+            polar_outer_radius: 16000.0,
+            polar_source_csm: false,
+            polar_size: [1024, 1024],
+            polar_pcf: true,
+            polar_enabled: true,
+            polar_apply_shadow: true,
+            polar_caster_bias: true,
+            polar_depth_bias: 16.0,
+            polar_source_main_depth: true,
+            polar_debug_texels: false,
+            polar_surface_grid: false,
+            polar_inner_follow_csm: true,
             azimuth: 60.,
             elevation: 30.,
             direct: true,
@@ -202,6 +240,9 @@ pub struct Lighting {
     pub splits: [f32; 4],
     pub view_forward: [f32; 4],
     pub material: [f32; 4],
+    pub polar: [f32; 4],
+    pub inverse_view_projection: [[f32; 4]; 4],
+    pub polar_sampling: [u32; 4],
 }
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -210,6 +251,16 @@ pub struct CameraUniform {
     pub inverse: f32,
     pub previous: f32,
     pub history_to_current: f32,
+}
+impl Settings {
+    pub fn polar_effective_inner_radius(&self) -> f32 {
+        let requested = if self.polar_inner_follow_csm {
+            self.shadow_distance
+        } else {
+            self.polar_inner_radius
+        };
+        requested.min(self.polar_outer_radius - 1.0)
+    }
 }
 pub fn layout(s: &Settings) -> (u32, u32) {
     let mut levels = 1;
@@ -421,7 +472,7 @@ mod tests {
     #[test]
     fn gpu_layout_and_reversed_depth() {
         assert_eq!(std::mem::size_of::<Scene>(), 752);
-        assert_eq!(std::mem::size_of::<Lighting>(), 464);
+        assert_eq!(std::mem::size_of::<Lighting>(), 560);
         assert_eq!(std::mem::offset_of!(Lighting, shadow_matrices), 160);
         assert_eq!(std::mem::offset_of!(Lighting, material), 448);
         assert_eq!(std::mem::size_of::<CameraUniform>(), 16);

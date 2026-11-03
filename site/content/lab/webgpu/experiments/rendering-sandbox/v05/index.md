@@ -19,18 +19,19 @@ CSMで不足する近距離のコンタクトと、CSMが届かない遠距離�
 
 ZPrePass → Screen Shadow Trace → CSM → Forward HDR → PostProcess → eguiの順です。WebGPUでは同じQueueに順に送信し、独立した非同期Computeで動かしているとは扱いません。
 
-Traceは各対象画素からDirectional Lightへワールド空間でサンプルを配置し、毎回投影して深度を参照します。既定ONのInterleaved Gradient Noise（IGN）で、画素ごとにサンプル列の位相を1ステップ幅内でずらし、規則的な縞やブロック状の誤差を分散します。光源方向やステップ数は変えません。フレーム番号を使わない静的ジッターで、OFFでは従来の区間中央サンプルへ戻せます。Infinity-far Reversed Zの深度から位置を復元し、交差判定はビューZのm単位の厚みで行います。始点バイアスは光源方向の距離です。法線バッファは追加しません。
+Traceは深度からView空間の始点を復元し、View空間へ変換したDirectional Light方向に沿ってサンプルします。View空間の原点はカメラ位置なので、始点を原点方向へ割合で寄せて深度面からカメラ側へ離します。各サンプルはView Zと投影スケールから画面UVを直接求め、深度バッファを参照します。ワールド位置への逆変換や各ステップの行列再投影は行いません。既定ONのInterleaved Gradient Noise（IGN）で、画素ごとにサンプル列の位相を1ステップ幅内でずらし、規則的な縞やブロック状の誤差を分散します。光源方向やステップ数は変えません。フレーム番号を使わない静的ジッターで、OFFでは従来の区間中央サンプルへ戻せます。Infinity-far Reversed Zではraw depthからView Zを1/rawで得て、投影スケールからView位置を組み立てます。比較は「レイのView Z − 深度面のView Z」が正で、許容厚みより小さい場合だけヒットです。深度面より手前はヒットしません。法線バッファは追加しません。
 
-既定はフル解像度・16ステップ・レイ長64m・基準厚み0.2m・始点バイアス0.02mです。等倍/縦横1/2/縦横1/4と4/8/16ステップを選択できます。1080pで縦横1/4・8ステップなら、論理的な深度参照数の上限は約1.04M/Frameです。始点の深度取得は別に1回/対象画素あり、空の除外・交差や画面外での終了により実際の回数は変わります。
+既定はフル解像度・16ステップ・レイ長64m・基準厚み0.2m・カメラ方向の始点バイアス0.01%です。等倍/縦横1/2/縦横1/4と4/8/16/32/64ステップを選択できます。64ステップは品質比較用で、既定16ステップの4倍の深度サンプルが上限になります。1080pで縦横1/4・8ステップなら、論理的な深度参照数の上限は約1.04M/Frameです。始点の深度取得は別に1回/対象画素あり、空の除外・交差や画面外での終了により実際の回数は変わります。
 
 ## サンプル位置と合成の処理
 
 ```wgsl
 let phase = select(0.5, interleavedGradientNoise(originPixel), ss.display.w != 0u);
-let distance = ss.trace.z + mix(lo, hi, phase);
+originView *= 1.0 - ss.trace.z;
+let distance = mix(lo, hi, phase);
 ```
 
-各画素のIGNで区間内の位置を決め、始点バイアスを加えます。lo/hiは初期の細かい区間か、後半の二次配置の区間です。ノイズテクスチャは追加せず、静止時は同じ位置を使います。
+`trace.z`はバイアス割合です。View空間の原点がカメラ位置なので、この乗算で復元した表面位置を視線に沿ってカメラ側へ寄せます。既定の0.01%では、カメラから200mの位置を2cm寄せます。各画素のIGNで区間内の位置を決めます。lo/hiは初期の細かい区間か、後半の二次配置の区間です。ノイズテクスチャは追加せず、静止時は同じ位置を使います。
 
 ```wgsl
 let visibility = screenMaskAt(pixel);
@@ -45,7 +46,7 @@ return min(csm, visibility);
 
 最初4ステップは、視点距離に関係なく0.25m間隔を維持します。最初から遠景用の大きな間隔で進んで、近い遮蔽物を飛び越えるのを抑えるためです。残り12ステップは、初期区間の終端からレイ終端までを二次分布で配置します。ステップ数自体は増やしません。IGNは各区間の中でサンプル位置をずらします。
 
-厚みも距離に応じて緩和します。後半の判定幅は「基準厚み×scale＋区間幅×係数」を最大厚みで制限します。既定の係数は0.5、最大厚みは256mです。最初の細かい区間には基準厚みだけを使い、近景の接触部を遠景用の大きな許容幅で潰さないようにします。厚みは深度表面の背後にどれだけ侵入しても交差とみなすか、という近似です。緩和しすぎると別の物体や斜面を誤って遮蔽物と判断します。
+厚みも距離に応じて緩和します。後半の判定幅は「基準厚み×scale＋区間幅×係数」を最大厚みで制限します。既定の係数は0.5、最大厚みは256mです。最初の細かい区間には基準厚みだけを使い、近景の接触部を遠景用の大きな許容幅で潰さないようにします。ヒット条件は「レイのビューZ − 深度面のビューZ」が正で、かつ許容厚みより小さいことです。つまり深度面より手前にあるレイはヒット扱いしません。厚みはレイが深度表面の背後へどこまで入れば交差とみなすか、という近似です。緩和しすぎると別の物体や斜面を誤って遮蔽物と判断します。
 
 距離対応OFFでは、従来の等間隔レイ・固定厚みへ戻ります。初期ステップ数、初期間隔、基準距離、最大レイ長、最大厚み、区間幅の係数をUIで変更できます。
 
@@ -88,9 +89,12 @@ IGNの参考：[Interleaved Gradient Noise — Alan Wolfe](https://blog.demofox.
 [前版v04](../v04/) · [v05ソース（GitHub）](https://github.com/nagakagachi/nagakagachi.github.io/tree/main/rendering-sandbox/v05)
 
 
+Unity HDRPもレイの始点・終点をクリップ空間へ写した後、レイを画面UVと深度の空間で追跡します。本実装はDirectional Lightに限定し、View空間レイと投影スケールで各点を直接画面へ写す単純な形にしています。
+
 ## 参考資料
 
-- [Unity HDRP ContactShadows.compute](https://github.com/Unity-Technologies/Graphics/blob/master/Packages/com.unity.render-pipelines.high-definition/Runtime/Lighting/Shadow/ContactShadows.compute)：視点深度に応じたレイ長、IGN、交差の許容幅
+- [Unity HDRP ContactShadows.compute](https://github.com/Unity-Technologies/Graphics/blob/master/Packages/com.unity.render-pipelines.high-definition/Runtime/Lighting/Shadow/ContactShadows.compute)：カメラ相対位置をカメラ方向へ寄せる始点バイアス、視点深度に応じたレイ長、IGN、交差の許容幅
+- [HDRP Camera-Relative Rendering](https://docs.unity.cn/Packages/com.unity.render-pipelines.high-definition%4012.0/manual/Camera-Relative-Rendering.html)：シェーダのワールド位置とカメラ位置の扱い
 - [Tomasz Stachowiak — Depth buffer raymarching](https://gist.github.com/h3r2tic/9c8356bdaefbe80b1a22ae0aaee192db)：非線形サンプル配置、レイ長・ステップ数と厚みの関係
 
 この版は、それらを参考にした独自の組み合わせです。HDRPやBend Studioのアルゴリズムをそのまま移植したものではありません。初期細分化でも全ての薄い遮蔽物を保証できず、IGNだけではノイズは消えません。

@@ -56,6 +56,7 @@ impl Foliage {
         height: &wgpu::Buffer,
         uniforms: &[&wgpu::Buffer],
         lighting: &wgpu::BindGroupLayout,
+        polar: &wgpu::BindGroupLayout,
         model: Option<&ModelSettings>,
         cluster_mode: u32,
     ) -> Self {
@@ -202,6 +203,7 @@ impl Foliage {
                 include_str!("shaders/foliage-forward.wgsl"),
                 crate::screen_shadow::PARAMS,
                 crate::screen_shadow::FORWARD,
+                include_str!("shaders/polar-shadow-sampling.wgsl"),
             ],
         );
         let z = [false, true]
@@ -228,7 +230,7 @@ impl Foliage {
                     &fm,
                     "vertexMain",
                     Some("fragmentMain"),
-                    &[&gl, lighting],
+                    &[&gl, lighting, polar],
                     wgpu::TextureFormat::Rgba16Float,
                     Some((wgpu::CompareFunction::Equal, false)),
                     wgpu::PrimitiveTopology::TriangleList,
@@ -567,6 +569,7 @@ impl Foliage {
         view: usize,
         forward: bool,
         lighting: &wgpu::BindGroup,
+        polar: &wgpu::BindGroup,
     ) {
         for (i, g) in self.parts.iter().enumerate() {
             if self.cluster_mode > 0 && !g.leaf {
@@ -580,6 +583,7 @@ impl Foliage {
             p.set_bind_group(0, &self.views[view].groups[i], &[]);
             if forward {
                 p.set_bind_group(1, lighting, &[]);
+                p.set_bind_group(2, polar, &[]);
             }
             p.set_index_buffer(g.indices.slice(..), wgpu::IndexFormat::Uint16);
             p.draw_indexed_indirect(&self.views[view].args, i as u64 * 20);

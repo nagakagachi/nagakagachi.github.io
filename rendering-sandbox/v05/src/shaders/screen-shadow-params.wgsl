@@ -1,8 +1,7 @@
 struct ScreenParams {
-    inverseViewProjection: mat4x4f,
-    viewProjection: mat4x4f,
-    light: vec4f,
-    trace: vec4f, // レイ長m、厚みm、始点バイアスm、予約。
+    projectionScale: vec4f,
+    lightView: vec4f,
+    trace: vec4f, // レイ長m、厚みm、カメラ方向の始点バイアス割合、予約。
     dimensions: vec4u, // メイン幅/高さ、Trace幅/高さ。
     options: vec4u, // 有効、ステップ数、診断集計、CSM合成モード。
     display: vec4u, // 可視化、再構成フィルタ、予約、IGNジッター。

@@ -156,7 +156,7 @@ pub fn pipeline(
             module,
             entry_point: Some(entry),
             compilation_options: Default::default(),
-            targets: &targets,
+            targets: if format.is_depth_stencil_format() { &[] } else { &targets },
         }),
         primitive: wgpu::PrimitiveState {
             topology,
