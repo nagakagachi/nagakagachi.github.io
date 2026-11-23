@@ -16,8 +16,10 @@ struct View {
     frozen: Option<Scene>,
 }
 pub struct Renderer {
-    pub screen: crate::screen_shadow::ScreenShadow,
+    polar: crate::polar_shadow::PolarShadowCache,
+    fog: crate::volumetric_fog::VolumetricFog,
     pub foliage: crate::foliage::Foliage,
+    primitives: crate::primitive::Primitives,
     pub modeler: bool,
     pub cluster_mode: u32,
     pub skeleton: bool,
@@ -43,19 +45,6 @@ pub struct Renderer {
     z: wgpu::RenderPipeline,
     forward: wgpu::RenderPipeline,
     wire: wgpu::RenderPipeline,
-    polar_grid: wgpu::RenderPipeline,
-    polar_grid_xray: wgpu::RenderPipeline,
-    polar_scatter: wgpu::ComputePipeline,
-    polar_clear: wgpu::ComputePipeline,
-    polar_merge: wgpu::ComputePipeline,
-    polar_storage_layout: wgpu::BindGroupLayout,
-    polar_storage: wgpu::BindGroup,
-    polar_main_depth: wgpu::BindGroup,
-    polar_overlay: [wgpu::RenderPipeline; 2],
-    polar_view: wgpu::TextureView,
-    polar_size: [u32; 2],
-    polar_layout: wgpu::BindGroupLayout,
-    polar_group: wgpu::BindGroup,
     post: wgpu::RenderPipeline,
     post_group: wgpu::BindGroup,
     indices: wgpu::Buffer,
@@ -80,7 +69,6 @@ impl Renderer {
         let size = [960, 540];
         let heights = Heights::new(d);
         let (hdr, depth, output) = targets(d, size);
-        let screen = crate::screen_shadow::ScreenShadow::new(d, &depth, size);
         let camera = buffer(d, "Camera PreExposure", 16, B::UNIFORM | B::COPY_DST);
         let sky = Sky::new(d, &camera);
         let lighting = buffer(d, "Lighting", std::mem::size_of::<scene::Lighting>() as u64, B::UNIFORM | B::COPY_DST);
@@ -92,6 +80,7 @@ impl Renderer {
             T::RENDER_ATTACHMENT | T::TEXTURE_BINDING,
             1,
         );
+        let polar = crate::polar_shadow::PolarShadowCache::new(d, &shadow, &depth);
         let ll = layout(
             d,
             &[
@@ -135,8 +124,6 @@ impl Renderer {
                     S::FRAGMENT,
                     wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 ),
-                (8, S::FRAGMENT, crate::screen_shadow::mask_binding()),
-                (9, S::FRAGMENT, uniform()),
             ],
         );
         let shadow_sampler = d.create_sampler(&wgpu::SamplerDescriptor {
@@ -157,8 +144,6 @@ impl Renderer {
                 wgpu::BindingResource::TextureView(&sky.specular.create_view(&Default::default())),
                 wgpu::BindingResource::TextureView(&sky.lut.create_view(&Default::default())),
                 wgpu::BindingResource::Sampler(&sky.sampler),
-                wgpu::BindingResource::TextureView(&screen.mask.create_view(&Default::default())),
-                screen.uniform.as_entire_binding(),
             ],
         );
         let gl = layout(
@@ -219,10 +204,9 @@ impl Renderer {
                 GEOMETRY,
                 &shading,
                 include_str!("shaders/terrain-forward.wgsl"),
-                crate::screen_shadow::PARAMS,
-                crate::screen_shadow::FORWARD,
+                include_str!("shaders/surface-shading.wgsl"),
+                include_str!("shaders/polar-shadow-common.wgsl"),
                 include_str!("shaders/polar-shadow-sampling.wgsl"),
-                include_str!("shaders/polar-shadow-grid.wgsl"),
             ],
         );
         let z = pipeline(
@@ -249,89 +233,19 @@ impl Renderer {
             wgpu::PrimitiveTopology::LineList,
             None,
         );
-        let polar_layout = layout(d, &[(0, S::FRAGMENT, wgpu::BindingType::Texture {
-            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-            view_dimension: wgpu::TextureViewDimension::D2,
-            multisampled: false,
-        })]);
-        let polar_size = Settings::default().polar_size;
-        let (polar_view, polar_group) = polar_target(d, &polar_layout, polar_size);
+        let fog = crate::volumetric_fog::VolumetricFog::new(d, &depth, &polar.surface_layout);
         let forward = pipeline(
             d,
             "Forward HDR",
             &fmod,
             "vertexMain",
             Some("fragmentMain"),
-            &[&gl, &ll, &polar_layout],
+            &[&gl, &ll, &polar.surface_layout],
             wgpu::TextureFormat::Rgba16Float,
             Some((wgpu::CompareFunction::Equal, false)),
             wgpu::PrimitiveTopology::TriangleList,
             Some(wgpu::Face::Back),
         );
-        let polar_grid = pipeline(
-            d, "PolarShadowCache Grid", &fmod, "polarGridVertex", Some("polarGridFragment"),
-            &[&gl, &ll, &polar_layout], wgpu::TextureFormat::Rgba16Float,
-            Some((wgpu::CompareFunction::GreaterEqual, false)), wgpu::PrimitiveTopology::TriangleList, None,
-        );
-        let polar_grid_xray = pipeline(
-            d, "PolarShadowCache Grid Xray", &fmod, "polarGridVertex", Some("polarGridFragment"),
-            &[&gl, &ll, &polar_layout], wgpu::TextureFormat::Rgba16Float,
-            Some((wgpu::CompareFunction::Always, false)), wgpu::PrimitiveTopology::TriangleList, None,
-        );
-        let polar_input = layout(d, &[(0, S::COMPUTE, wgpu::BindingType::Texture {
-            sample_type: wgpu::TextureSampleType::Depth,
-            view_dimension: wgpu::TextureViewDimension::D2,
-            multisampled: false,
-        })]);
-        let polar_storage_layout = layout(d, &[
-            (0, S::COMPUTE, storage(false)),
-            (1, S::COMPUTE, wgpu::BindingType::StorageTexture {
-                access: wgpu::StorageTextureAccess::WriteOnly,
-                format: wgpu::TextureFormat::R32Float,
-                view_dimension: wgpu::TextureViewDimension::D2,
-            }),
-        ]);
-        let polar_storage = polar_storage_group(d, &polar_storage_layout, polar_size, &polar_view);
-        let polar_build_layouts = [&gl, &ll, &polar_input, &polar_storage_layout];
-        let polar_build = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("PolarShadowCache 構築"),
-            bind_group_layouts: &polar_build_layouts,
-            push_constant_ranges: &[],
-        });
-        let subgroup = d.features().contains(wgpu::Features::SUBGROUP);
-        let scatter_source = include_str!("shaders/polar-shadow-scatter.wgsl").replace(
-            "//INSERT_SUBGROUP",
-            if subgroup {
-                // 同一セルに集中する場合だけ集約し、異なるセルへの書き込みは個別に行う。
-                "let key = subgroupBroadcastFirst(candidate.x);
-                 if (subgroupAll(candidate.x == key)) {
-                     let depth = subgroupMax(candidate.y);
-                     if (subgroupElect() && key != 0xffffffffu) {
-                         atomicMax(&polarDepths[key], depth);
-                     }
-                     return;
-                 }"
-            } else { "" },
-        );
-        let polar_module = shader(d, "PolarShadowCache 構築", &[
-            if subgroup { "enable subgroups;" } else { "" },
-            COMMON, GEOMETRY, &shading,
-            include_str!("shaders/terrain-forward.wgsl"),
-            crate::screen_shadow::PARAMS, crate::screen_shadow::FORWARD,
-            include_str!("shaders/polar-shadow-sampling.wgsl"),
-            include_str!("shaders/polar-shadow-grid.wgsl"),
-            &scatter_source,
-        ]);
-        let polar_clear = compute(d, "PSC クリア", &polar_module, "polarClear", Some(&polar_build));
-        let polar_merge = compute(d, "PSC ソース合成", &polar_module, "polarMerge", Some(&polar_build));
-        let polar_scatter = compute(d, "PSC メイン深度転写", &polar_module, "polarScatter", Some(&polar_build));
-        let polar_overlay = ["polarOverlayTexture", "polarOverlayDisk"].map(|fragment| {
-            pipeline(
-                d, "PolarShadowCache 画面表示", &fmod, "polarOverlayVertex", Some(fragment),
-                &[&gl, &ll, &polar_layout], wgpu::TextureFormat::Rgba8Unorm,
-                None, wgpu::PrimitiveTopology::TriangleList, None,
-            )
-        });
         let (ib, lines) = scene::indices();
         let indices = upload(d, "タイル共有IB", &ib, B::INDEX);
         let wire_indices = upload(d, "Wire IB", &lines, B::INDEX);
@@ -526,22 +440,26 @@ impl Renderer {
                 )
             })
             .collect();
+        let primitives = crate::primitive::Primitives::new(d,
+            &views.iter().map(|v| &v.uniform).collect::<Vec<_>>(), &ll, &polar.surface_layout, crate::primitive::Mesh::cuboid());
         let foliage = crate::foliage::Foliage::new(
             d,
             &heights.data,
             &views.iter().map(|v| &v.uniform).collect::<Vec<_>>(),
             &ll,
-            &polar_layout,
+            &polar.surface_layout,
             None,
             0,
         );
         Self {
-            screen,
+            polar,
+            fog,
             resource_debug,
             resource_groups,
             resource_mips,
             specular_mip: 0,
             foliage,
+            primitives,
             modeler: false,
             cluster_mode: 0,
             skeleton: true,
@@ -555,8 +473,6 @@ impl Renderer {
             output,
             size,
             hdr,
-            polar_main_depth: group(d, &polar_scatter.get_bind_group_layout(2),
-                &[wgpu::BindingResource::TextureView(&depth.create_view(&Default::default()))]),
             depth,
             shadow,
             views,
@@ -569,18 +485,6 @@ impl Renderer {
             z,
             forward,
             wire,
-            polar_grid,
-            polar_grid_xray,
-            polar_scatter,
-            polar_clear,
-            polar_merge,
-            polar_storage_layout,
-            polar_storage,
-            polar_overlay,
-            polar_view,
-            polar_size,
-            polar_layout,
-            polar_group,
             post,
             post_group,
             indices,
@@ -635,11 +539,9 @@ impl Renderer {
         let (hdr, depth, out) = targets(d, size);
         self.hdr = hdr;
         self.depth = depth;
-        self.polar_main_depth = group(d, &self.polar_scatter.get_bind_group_layout(2),
-            &[wgpu::BindingResource::TextureView(&self.depth.create_view(&Default::default()))]);
+        self.polar.rebuild_depth(d, &self.depth);
+        self.fog.rebuild(d, &self.depth, size, 4);
         self.output = out;
-        self.screen
-            .rebuild(d, &self.depth, size, self.screen.divisor);
         self.rebuild_lighting(d);
         self.post_group = group(
             d,
@@ -667,17 +569,9 @@ impl Renderer {
     }
     // 解像度変更はレイアウト完了後に行い、Forwardの参照先も必ず同時に更新する。
     pub fn prepare_screen(&mut self, d: &wgpu::Device, s: &Settings) {
-        if self.polar_size != s.polar_size {
-            (self.polar_view, self.polar_group) = polar_target(d, &self.polar_layout, s.polar_size);
-            self.polar_storage = polar_storage_group(d, &self.polar_storage_layout, s.polar_size, &self.polar_view);
-            self.polar_size = s.polar_size;
-        }
-        if self.screen.size != crate::screen_shadow::dimensions(self.size, s.screen_shadow.divisor)
-        {
-            self.screen
-                .rebuild(d, &self.depth, self.size, s.screen_shadow.divisor);
-            self.rebuild_lighting(d);
-        }
+        self.polar.resize_cache(d, s.polar.size);
+        self.fog.prepare(d, &self.depth, self.size, s.fog.divisor);
+
     }
     fn rebuild_lighting(&mut self, d: &wgpu::Device) {
         let sampler = d.create_sampler(&wgpu::SamplerDescriptor {
@@ -700,10 +594,6 @@ impl Renderer {
                 ),
                 wgpu::BindingResource::TextureView(&self.sky.lut.create_view(&Default::default())),
                 wgpu::BindingResource::Sampler(&self.sky.sampler),
-                wgpu::BindingResource::TextureView(
-                    &self.screen.mask.create_view(&Default::default()),
-                ),
-                self.screen.uniform.as_entire_binding(),
             ],
         );
     }
@@ -714,6 +604,7 @@ impl Renderer {
         s: &Settings,
         c: &Camera,
         timer: &mut GpuProfiler,
+        dt: f32,
     ) {
         self.frame += 1;
         let aspect = self.size[0] as f32 / self.size[1] as f32;
@@ -772,7 +663,7 @@ impl Renderer {
             shadow_view_projection: cascades[0].matrix.to_cols_array_2d(),
             light: l.extend(if s.direct { 20. } else { 0. }).to_array(),
             shadow: [
-                s.shadows as u32 as f32,
+                u32::from(s.shadows && s.csm_apply_shadow) as f32,
                 s.depth_bias,
                 s.normal_bias,
                 1. / 2048.,
@@ -784,12 +675,12 @@ impl Renderer {
                 0.,
             ],
             sky_diffuse: [s.albedo[0], s.albedo[1], s.albedo[2], s.sky],
-            camera_position: c.position.extend(s.polar_effective_inner_radius()).to_array(),
+            camera_position: c.position.extend(0.0).to_array(),
             atmosphere: [
-                s.aerial as u32 as f32,
+                s.atmosphere_fog as u32 as f32,
                 2000.,
                 s.constant_albedo as u32 as f32,
-                s.polar_debug_offset,
+                0.0,
             ],
             shadow_matrices: std::array::from_fn(|i| cascades[i].matrix.to_cols_array_2d()),
             splits: std::array::from_fn(|i| cascades[i].split),
@@ -803,9 +694,7 @@ impl Renderer {
                 s.specular as u32 as f32,
                 s.csm_colors as u32 as f32,
             ],
-            polar: [s.polar_outer_radius, u32::from(s.polar_debug_texels) as f32, u32::from(s.polar_enabled && s.polar_apply_shadow && !self.modeler) as f32, if s.polar_caster_bias { s.polar_depth_bias } else { 0.0 }],
             inverse_view_projection: matrix.inverse().to_cols_array_2d(),
-            polar_sampling: [self.polar_size[0], self.polar_size[1], u32::from(s.polar_pcf), u32::from(s.polar_surface_grid && !self.modeler) | (u32::from(s.polar_source_csm && s.shadows) << 1)],
         };
         q.write_buffer(&self.lighting, 0, bytemuck::bytes_of(&values));
         if !self.modeler && (!s.freeze || self.frame == 1) {
@@ -836,6 +725,8 @@ impl Renderer {
             self.wood_lod,
             self.refresh_statistics,
         );
+        let primitive_instances = crate::primitive::pillars(&s.primitives);
+        self.primitives.encode(q, e, s, &primitive_instances, self.modeler, timer);
         let depth = self.depth.create_view(&Default::default());
         let hdr = self.hdr.create_view(&Default::default());
         let shadow = self.shadow.create_view(&Default::default());
@@ -860,9 +751,9 @@ impl Renderer {
             if !self.modeler {
                 p.draw_indexed_indirect(&self.views[0].args, 0);
             }
-            self.foliage.draw(&mut p, 0, false, &self.lighting_group, &self.polar_group);
+            self.primitives.draw(&mut p, 0, false, &self.lighting_group, &self.polar.surface_group);
+            self.foliage.draw(&mut p, 0, false, &self.lighting_group, &self.polar.surface_group);
         }
-        self.screen.encode(q, e, s, c, self.size, self.frame, timer);
         {
             let mut p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ShadowPass"),
@@ -897,32 +788,13 @@ impl Renderer {
                     if !self.modeler {
                         p.draw_indexed_indirect(&self.views[i + 1].args, 0);
                     }
+                    self.primitives.draw(&mut p, i + 1, false, &self.lighting_group, &self.polar.surface_group);
                     self.foliage
-                        .draw(&mut p, i + 1, false, &self.lighting_group, &self.polar_group);
+                        .draw(&mut p, i + 1, false, &self.lighting_group, &self.polar.surface_group);
                 }
             }
         }
-        if s.polar_enabled && !self.modeler {
-            let [width, height] = self.polar_size;
-            {
-                let mut p = e.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("PSC 構築"),
-                    timestamp_writes: timer.compute_writes("PSC 構築"),
-                });
-                p.set_pipeline(&self.polar_clear);
-                p.set_bind_group(0, &self.views[0].geometry, &[]);
-                p.set_bind_group(1, &self.lighting_group, &[]);
-                p.set_bind_group(2, &self.polar_main_depth, &[]);
-                p.set_bind_group(3, &self.polar_storage, &[]);
-                p.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
-                if s.polar_source_main_depth {
-                    p.set_pipeline(&self.polar_scatter);
-                    p.dispatch_workgroups(self.size[0].div_ceil(8), self.size[1].div_ceil(8), 1);
-                }
-                p.set_pipeline(&self.polar_merge);
-                p.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
-            }
-        }
+        self.polar.encode(q, e, s, c, aspect, self.size, values.shadow_matrices, !self.modeler, dt, timer);
         {
             let mut p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ForwardShadingPass HDR"),
@@ -944,30 +816,23 @@ impl Renderer {
                 occlusion_query_set: None,
             });
             p.set_pipeline(&self.forward);
-            p.set_bind_group(2, &self.polar_group, &[]);
+            p.set_bind_group(2, &self.polar.surface_group, &[]);
             p.set_bind_group(0, &self.views[0].geometry, &[]);
             p.set_bind_group(1, &self.lighting_group, &[]);
             p.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint16);
             if !self.modeler {
                 p.draw_indexed_indirect(&self.views[0].args, 0);
             }
-            self.foliage.draw(&mut p, 0, true, &self.lighting_group, &self.polar_group);
+            self.primitives.draw(&mut p, 0, true, &self.lighting_group, &self.polar.surface_group);
+            self.foliage.draw(&mut p, 0, true, &self.lighting_group, &self.polar.surface_group);
             if self.skeleton && self.modeler {
                 self.foliage.draw_skeleton(&mut p, self.preview_count);
             }
             p.set_pipeline(&self.sky.render);
             p.set_bind_group(0, &self.sky.render_group, &[]);
             p.draw(0..3, 0..1);
-            if s.polar_enabled && s.polar_shadow_grid && !self.modeler {
-                p.set_pipeline(if s.polar_shadow_xray {
-                    &self.polar_grid_xray
-                } else {
-                    &self.polar_grid
-                });
-                p.set_bind_group(0, &self.views[0].geometry, &[]);
-                p.set_bind_group(1, &self.lighting_group, &[]);
-                p.set_bind_group(2, &self.polar_group, &[]);
-                p.draw(0..(128 * 6), 0..1);
+            if !self.modeler {
+                self.polar.draw_world(&mut p, &s.polar);
             }
             if s.wire && !self.modeler {
                 p.set_pipeline(&self.wire);
@@ -976,6 +841,12 @@ impl Renderer {
                 p.set_index_buffer(self.wire_indices.slice(..), wgpu::IndexFormat::Uint16);
                 p.draw_indexed_indirect(&self.wire_args, 0);
             }
+        }
+        // サーフェイスと空のHDR出力へ合成し、その後に既存のTonemappingを行う。
+        if s.fog.enabled && !self.modeler && s.debug == 0
+            && !s.polar.surface_grid && !s.normals
+            && !s.tile_colors && !s.height_colors && !s.height_grid && !s.shadow_mask && !s.csm_grid && !s.csm_colors {
+            self.fog.encode(q, e, s, c, aspect, &hdr, &self.polar.surface_group, timer);
         }
         q.write_buffer(
             &self.depth_range,
@@ -998,10 +869,6 @@ impl Renderer {
             timestamp_writes: timer.render_writes("PostProcess"),
             occlusion_query_set: None,
         });
-        if s.screen_shadow.debug != 0 {
-            p.set_pipeline(&self.screen.debug_pipeline);
-            p.set_bind_group(0, &self.screen.debug_group, &[]);
-        } else {
             match s.debug {
                 1 => {
                     p.set_pipeline(&self.depth_debug);
@@ -1016,7 +883,6 @@ impl Renderer {
                     p.set_bind_group(0, &self.post_group, &[]);
                 }
             }
-        }
         p.draw(0..3, 0..1);
         let mut offset = 8u32;
         for (i, enabled) in [s.sky_debug, s.specular_debug].iter().enumerate() {
@@ -1043,19 +909,7 @@ impl Renderer {
                 }
             }
         }
-        if s.polar_enabled && s.polar_overlay && !self.modeler {
-            let side = ((256.0 * s.polar_overlay_scale).round() as u32).min(self.size[0].saturating_sub(16))
-                .min(self.size[1].saturating_sub(16));
-            if side > 0 {
-                p.set_viewport(8., (self.size[1] - side - 8) as f32,
-                    side as f32, side as f32, 0., 1.);
-                p.set_pipeline(&self.polar_overlay[usize::from(s.polar_overlay_disk)]);
-                p.set_bind_group(0, &self.views[0].geometry, &[]);
-                p.set_bind_group(1, &self.lighting_group, &[]);
-                p.set_bind_group(2, &self.polar_group, &[]);
-                p.draw(0..3, 0..1);
-            }
-        }
+        if !self.modeler { self.polar.draw_overlay(&mut p, &s.polar, self.size); }
         if s.shadow_debug {
             p.set_viewport(
                 8.,
@@ -1071,23 +925,6 @@ impl Renderer {
         }
     }
 }
-fn polar_storage_group(d: &wgpu::Device, layout: &wgpu::BindGroupLayout, size: [u32; 2], output: &wgpu::TextureView) -> wgpu::BindGroup {
-    let depths = buffer(d, "PSC 深度集約", u64::from(size[0]) * u64::from(size[1]) * 4, B::STORAGE);
-    group(d, layout, &[depths.as_entire_binding(), wgpu::BindingResource::TextureView(output)])
-}
-
-fn polar_target(
-    d: &wgpu::Device,
-    layout: &wgpu::BindGroupLayout,
-    size: [u32; 2],
-) -> (wgpu::TextureView, wgpu::BindGroup) {
-    let map = texture(d, "PolarShadowCache", size, wgpu::TextureFormat::R32Float,
-        T::TEXTURE_BINDING | T::STORAGE_BINDING, 1);
-    let view = map.create_view(&Default::default());
-    let bindings = group(d, layout, &[wgpu::BindingResource::TextureView(&view)]);
-    (view, bindings)
-}
-
 fn targets(d: &wgpu::Device, size: [u32; 2]) -> (wgpu::Texture, wgpu::Texture, wgpu::Texture) {
     let usage = T::RENDER_ATTACHMENT | T::TEXTURE_BINDING;
     (

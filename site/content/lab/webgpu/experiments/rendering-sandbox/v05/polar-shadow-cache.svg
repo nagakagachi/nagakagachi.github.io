@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 440" role="img" aria-labelledby="title desc">
+<title id="title">PolarShadowCacheのマッピングと参照</title>
+<desc id="desc">ライト方向から見た円盤の角度と半径を、二次元テクスチャの横軸と縦軸へ変換する。深度はライト軸上の最近点を保存し、地表とフォグで参照する。</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#9ebfc3"/></marker></defs>
+<rect width="880" height="440" rx="14" fill="#101f24"/>
+<g font-family="sans-serif" fill="#dce7e7" font-size="15">
+<text x="32" y="36" font-size="18">ライト方向から見た円盤</text>
+<text x="540" y="36" font-size="18">PSCの2Dテクスチャ</text>
+<g stroke="#66898d" fill="none">
+<circle cx="210" cy="203" r="12"/>
+<circle cx="210" cy="203" r="29"/>
+<circle cx="210" cy="203" r="53"/>
+<circle cx="210" cy="203" r="84"/>
+<circle cx="210" cy="203" r="122"/>
+<path d="M210 203L332.00 203.00"/>
+<path d="M210 203L322.71 249.69"/>
+<path d="M210 203L296.27 289.27"/>
+<path d="M210 203L256.69 315.71"/>
+<path d="M210 203L210.00 325.00"/>
+<path d="M210 203L163.31 315.71"/>
+<path d="M210 203L123.73 289.27"/>
+<path d="M210 203L97.29 249.69"/>
+<path d="M210 203L88.00 203.00"/>
+<path d="M210 203L97.29 156.31"/>
+<path d="M210 203L123.73 116.73"/>
+<path d="M210 203L163.31 90.29"/>
+<path d="M210 203L210.00 81.00"/>
+<path d="M210 203L256.69 90.29"/>
+<path d="M210 203L296.27 116.73"/>
+<path d="M210 203L322.71 156.31"/>
+</g><circle cx="210" cy="203" r="5" fill="#e4bf79"/><text x="221" y="222">カメラ</text>
+<path d="M210 203L316 142" stroke="#b5d5d7" stroke-width="2" marker-end="url(#arrow)"/><text x="233" y="148">半径 r</text>
+<text x="56" y="355">近くを密に、遠くを疎に配置</text><text x="46" y="381" fill="#9ebfc3">円盤はライト方向に垂直</text>
+<path d="M366 200H494" stroke="#9ebfc3" stroke-width="2" marker-end="url(#arrow)"/><text x="389" y="180">角度・半径</text>
+<rect x="529" y="76" width="312" height="242" fill="#1d343b" stroke="#8eafb3"/>
+<path d="M548.5 76V318" stroke="#496b72"/>
+<path d="M568.0 76V318" stroke="#496b72"/>
+<path d="M587.5 76V318" stroke="#496b72"/>
+<path d="M607.0 76V318" stroke="#496b72"/>
+<path d="M626.5 76V318" stroke="#496b72"/>
+<path d="M646.0 76V318" stroke="#496b72"/>
+<path d="M665.5 76V318" stroke="#496b72"/>
+<path d="M685.0 76V318" stroke="#496b72"/>
+<path d="M704.5 76V318" stroke="#496b72"/>
+<path d="M724.0 76V318" stroke="#496b72"/>
+<path d="M743.5 76V318" stroke="#496b72"/>
+<path d="M763.0 76V318" stroke="#496b72"/>
+<path d="M782.5 76V318" stroke="#496b72"/>
+<path d="M802.0 76V318" stroke="#496b72"/>
+<path d="M821.5 76V318" stroke="#496b72"/>
+<path d="M529 106.25H841" stroke="#496b72"/>
+<path d="M529 136.5H841" stroke="#496b72"/>
+<path d="M529 166.75H841" stroke="#496b72"/>
+<path d="M529 197.0H841" stroke="#496b72"/>
+<path d="M529 227.25H841" stroke="#496b72"/>
+<path d="M529 257.5H841" stroke="#496b72"/>
+<path d="M529 287.75H841" stroke="#496b72"/>
+<text x="626" y="59">U＝角度 θ</text><text x="520" y="95" text-anchor="end">近</text><text x="520" y="317" text-anchor="end">遠</text><text x="600" y="344">V＝半径の写像</text>
+<rect x="590" y="130" width="17" height="24" rx="2" fill="#b99562"/>
+<rect x="612" y="160" width="17" height="24" rx="2" fill="#b99562"/>
+<rect x="710" y="254" width="17" height="24" rx="2" fill="#b99562"/>
+<rect x="731" y="254" width="17" height="24" rx="2" fill="#b99562"/>
+<rect x="730" y="284" width="17" height="24" rx="2" fill="#b99562"/>
+<text x="544" y="375" fill="#e4bf79">各セルにライト軸上の最近深度</text>
+<path d="M32 401H848" stroke="#496b72"/><text x="48" y="426">MainViewDepth → Computeで転写・集約 → PSC → 地表の影 / VolumetricFogの遮蔽</text></g></svg>

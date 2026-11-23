@@ -44,7 +44,7 @@ impl Heights {
             &shader(
                 d,
                 "generate-height",
-                &[include_str!("shaders/generate-height.wgsl")],
+                &[include_str!("shaders/terrain-height-function.wgsl"), include_str!("shaders/generate-height.wgsl")],
             ),
             "generateMain",
             Some(&pl),

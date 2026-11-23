@@ -1,13 +1,15 @@
 ﻿---
 title: "RenderingSandbox"
 date: "2026-10-26"
-lastmod: "2026-11-01T23:13:33+09:00"
+lastmod: "2026-11-23T12:00:00+09:00"
 description: "レンダリング実験環境の概要とバージョン一覧"
 ---
 
 地形・天球・配置物を使って、シャドウやGIなどのレンダリング技法を検証する環境です。節目ごとに独立した版を保存し、過去の実装もそのまま動かせる形で残します。
 
-**最新版：[RenderingSandbox v04を開く](v04/)**
+**最新版：[RenderingSandbox v05 - PolarShadowCacheを開く](v05/)**
+
+v05はMainView DepthBufferを流用した超遠距離の疑似シャドウキャッシュと、それを使うVolumetricFogの遮蔽を検証します。
 
 v04はRust・wgpu・eguiでブラウザWebGPUとWindows DX12の描画処理を共通化し、GPU時間の計測を追加しています。
 

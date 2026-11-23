@@ -1,77 +1,59 @@
-// 地形と樹木で共通の極座標シャドウ比較。
-@group(2) @binding(0) var polarGridMap: texture_2d<f32>;
-
-const POLAR_TAU: f32 = 6.283185307;
-const POLAR_DEPTH_SPAN: f32 = 32000.0;
-
-fn polarCompareCell(cell: vec2i, size: vec2i, receiver: f32) -> f32 {
-    let x = (cell.x + size.x) % size.x;
+@group(2) @binding(0) var<uniform> pscParams: PolarShadowParameters;
+@group(2) @binding(1) var pscMap: texture_2d<f32>;
+fn pscCompare(cell: vec2i, size: vec2i, reference: f32) -> f32 {
+    // 全周時だけ角度を折り返す。扇形の端は別方向へ接続しない。
+    let x = select(clamp(cell.x, 0, size.x - 1), (cell.x + size.x) % size.x,
+        pscParams.ellipse.w >= PSC_PI);
     let y = clamp(cell.y, 0, size.y - 1);
-    let blocker = textureLoad(polarGridMap, vec2i(x, y), 0).r;
-    return select(1.0, 0.0, blocker > receiver);
+    let blocker = textureLoad(pscMap, vec2i(x, y), 0).r;
+    return select(1.0, 0.0, blocker > reference);
 }
 
 fn polarShadowVisibility(position: vec3f) -> f32 {
-    if (lighting.polar.z == 0.0) {
+    if ((pscParams.flags.w & 1u) == 0u) {
         return 1.0;
     }
-    let local = transpose(polarBasis()) * (position - lighting.cameraPosition.xyz);
-    let radius = length(local.xy);
-    let inner = lighting.cameraPosition.w;
-    let outer = lighting.polar.x;
-    if (radius < inner || radius >= outer || abs(local.z) > POLAR_DEPTH_SPAN * 0.5) {
+    let relative = position - pscParams.camera.xyz;
+    let local = vec2f(dot(relative, pscParams.right.xyz), dot(relative, pscParams.up.xyz))
+        / pscParams.camera.w;
+    let uv = pscLocalUV(pscParams, local);
+    let depth = dot(relative, pscParams.light.xyz);
+    if (uv.z < 0.5 || abs(depth) > pscParams.light.w * 0.5) {
         return 1.0;
     }
-    let angle = select(0.0, atan2(local.y, local.x), radius > 0.0);
-    let uv = vec2f(fract(angle / POLAR_TAU), sqrt((radius - inner) / (outer - inner)));
-    let size = textureDimensions(polarGridMap);
-    let cell = min(vec2i(uv * vec2f(size)), vec2i(size) - 1);
-    // Reversed Zでは光源に近い遮蔽物ほど値が大きい。
-    let receiver = 0.5 + local.z / POLAR_DEPTH_SPAN;
-    if (lighting.polarSampling.z != 0u) {
-        let texel = uv * vec2f(size) - 0.5;
-        let base = vec2i(floor(texel));
-        let weight = fract(texel);
-        let dimensions = vec2i(size);
-        let top = mix(polarCompareCell(base, dimensions, receiver),
-                      polarCompareCell(base + vec2i(1, 0), dimensions, receiver), weight.x);
-        let bottom = mix(polarCompareCell(base + vec2i(0, 1), dimensions, receiver),
-                         polarCompareCell(base + vec2i(1, 1), dimensions, receiver), weight.x);
-        return mix(top, bottom, weight.y);
+    // バイアスはライト軸上のm単位で受光点を光源側へ寄せる。
+    let reference = 0.5 + (depth + pscParams.display.w) / pscParams.light.w;
+    let size = vec2i(textureDimensions(pscMap));
+    if ((pscParams.flags.w & 2u) == 0u) {
+        return pscCompare(vec2i(uv.xy * vec2f(size)), size, reference);
     }
-    let blocker = textureLoad(polarGridMap, cell, 0).r;
-    return select(1.0, 0.0, blocker > receiver);
+    let texel = uv.xy * vec2f(size) - 0.5;
+    let base = vec2i(floor(texel));
+    let weight = fract(texel);
+    let top = mix(pscCompare(base, size, reference),
+        pscCompare(base + vec2i(1, 0), size, reference), weight.x);
+    let bottom = mix(pscCompare(base + vec2i(0, 1), size, reference),
+        pscCompare(base + vec2i(1, 1), size, reference), weight.x);
+    return mix(top, bottom, weight.y);
 }
 
-fn polarBasis() -> mat3x3f {
-    let n = normalize(lighting.light.xyz);
-    let axis = select(vec3f(0, 1, 0), vec3f(0, 0, 1), abs(n.y) > 0.99);
-    let u = normalize(cross(axis, n));
-    let v = cross(n, u);
-    return mat3x3f(u, v, n);
-}
-
-
+// PSCと同じ16テクセル間隔。投影範囲外は暗くし、角度の継ぎ目を補正する。
 fn polarSurfaceGrid(position: vec3f) -> vec3f {
-    let local = transpose(polarBasis()) * (position - lighting.cameraPosition.xyz);
-    let radius = length(local.xy);
-    let inner = lighting.cameraPosition.w;
-    let outer = lighting.polar.x;
-    let uv = vec2f(
-        select(0.0, atan2(local.y, local.x) / POLAR_TAU, radius > 0.0),
-        sqrt(clamp((radius - inner) / (outer - inner), 0.0, 1.0)),
-    );
-    let scale = vec2f(lighting.polarSampling.xy) / 16.0;
-    let cell = uv * scale;
-    var dx = dpdx(uv);
-    var dy = dpdy(uv);
-    // 角度の継ぎ目では差分を一周分折り返す。
-    dx.x -= round(dx.x);
-    dy.x -= round(dy.x);
+    let relative = position - pscParams.camera.xyz;
+    let local = vec2f(dot(relative, pscParams.right.xyz), dot(relative, pscParams.up.xyz))
+        / pscParams.camera.w;
+    let uv = pscLocalUV(pscParams, local);
+    let scale = vec2f(textureDimensions(pscMap)) / 16.0;
+    var dx = dpdx(uv.xy);
+    var dy = dpdy(uv.xy);
+    if (pscParams.ellipse.w >= PSC_PI) {
+        dx.x -= round(dx.x);
+        dy.x -= round(dy.x);
+    }
     let footprint = max((abs(dx) + abs(dy)) * scale, vec2f(0.0001));
-    let edge = abs(fract(cell + 0.5) - 0.5);
+    let edge = abs(fract(uv.xy * scale + 0.5) - 0.5);
     let lines = (1.0 - smoothstep(vec2f(0.3), vec2f(1.3), edge / footprint))
         * clamp(1.0 - footprint * 2.0, vec2f(0), vec2f(1));
-    let covered = radius >= inner && radius < outer && abs(local.z) <= POLAR_DEPTH_SPAN * 0.5;
+    let covered = uv.z > 0.5 && abs(dot(relative, pscParams.light.xyz)) <= pscParams.light.w * 0.5;
     return select(vec3f(0.15), mix(vec3f(0.65), vec3f(0.015), max(lines.x, lines.y)), covered);
 }

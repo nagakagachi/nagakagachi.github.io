@@ -2,8 +2,10 @@ use crate::gpu::buffer;
 use std::sync::{Arc, Mutex};
 
 const SLOTS: usize = 4;
-const SCOPES: usize = 16;
+const SCOPES: usize = 32;
 const QUERIES: u32 = (SCOPES * 2) as u32;
+// Query Resolveの256B境界を保ち、スコープ数から読戻し容量を決める。
+const STRIDE: u64 = ((QUERIES as u64 * 8 + 255) / 256) * 256;
 struct Slot {
     readback: wgpu::Buffer,
     pending: bool,
@@ -44,7 +46,7 @@ impl GpuProfiler {
             resolve: buffer(
                 device,
                 "タイムスタンプ解決",
-                256 * SLOTS as u64,
+                STRIDE * SLOTS as u64,
                 wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
             ),
             slots: (0..SLOTS)
@@ -52,7 +54,7 @@ impl GpuProfiler {
                     readback: buffer(
                         device,
                         "非同期GPU時間",
-                        256,
+                        STRIDE,
                         wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                     ),
                     pending: false,
@@ -133,11 +135,11 @@ impl GpuProfiler {
                     self.queries.as_ref().expect("計測対応時のみ"),
                     i as u32 * QUERIES..i as u32 * QUERIES + count,
                     &self.resolve,
-                    i as u64 * 256,
+                    i as u64 * STRIDE,
                 );
                 encoder.copy_buffer_to_buffer(
                     &self.resolve,
-                    i as u64 * 256,
+                    i as u64 * STRIDE,
                     &self.slots[i].readback,
                     0,
                     count as u64 * 8,

@@ -1,4 +1,6 @@
 {{ define "main" }}
+{{ $sandboxJS := .Resources.Get "sandbox.js" | resources.Fingerprint "sha256" }}
+{{ $sandboxWasm := .Resources.Get "sandbox_bg.wasm" | resources.Fingerprint "sha256" }}
 <style>
 body:has(.rust-sandbox-article) main.shell { max-width:none; }
 .rust-sandbox-article { max-width:none; }
@@ -98,8 +100,8 @@ button.addEventListener('click', async () => {
   status.textContent = 'Rust / WebGPUを初期化しています';
   try {
     if (!navigator.gpu) throw new Error('WebGPU対応ブラウザが必要です');
-    const module = await import('./sandbox.js');
-    await module.default();
+    const module = await import({{ $sandboxJS.RelPermalink | jsonify | safeJS }});
+    await module.default({ module_or_path: {{ $sandboxWasm.RelPermalink | jsonify | safeJS }} });
     sandboxModule = module;
     module.start();
   } catch (error) {

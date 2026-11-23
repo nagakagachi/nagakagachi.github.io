@@ -3,7 +3,9 @@ use glam::{Mat4, Vec3, Vec4};
 
 #[derive(Clone, PartialEq)]
 pub struct Settings {
-    pub screen_shadow: crate::screen_shadow::Settings,
+    pub polar: crate::polar_shadow::CacheSettings,
+    pub fog: crate::volumetric_fog::FogSettings,
+    pub primitives: crate::primitive::PrimitiveSettings,
     pub seed: u32,
     pub amplitude: f32,
     pub mountain_scale: f32,
@@ -18,35 +20,17 @@ pub struct Settings {
     pub tile_colors: bool,
     pub height_colors: bool,
     pub height_grid: bool,
-    pub polar_shadow_grid: bool,
-    pub polar_shadow_xray: bool,
-    pub polar_debug_offset: f32,
-    pub polar_overlay: bool,
-    pub polar_overlay_disk: bool,
-    pub polar_overlay_scale: f32,
-    pub polar_inner_radius: f32,
-    pub polar_outer_radius: f32,
-    pub polar_source_csm: bool,
-    pub polar_size: [u32; 2],
-    pub polar_pcf: bool,
-    pub polar_enabled: bool,
-    pub polar_apply_shadow: bool,
-    pub polar_caster_bias: bool,
-    pub polar_depth_bias: f32,
-    pub polar_source_main_depth: bool,
-    pub polar_debug_texels: bool,
-    pub polar_surface_grid: bool,
-    pub polar_inner_follow_csm: bool,
     pub azimuth: f32,
     pub elevation: f32,
     pub direct: bool,
     pub shadows: bool,
+    pub csm_apply_shadow: bool,
     pub shadow_distance: f32,
     pub depth_bias: f32,
     pub normal_bias: f32,
     pub pcf: u32,
     pub sky: f32,
-    pub aerial: bool,
+    pub atmosphere_fog: bool,
     pub specular: bool,
     pub albedo: [f32; 3],
     pub constant_albedo: bool,
@@ -74,7 +58,9 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            screen_shadow: Default::default(),
+            polar: Default::default(),
+            fog: Default::default(),
+            primitives: Default::default(),
             seed: 12343725,
             amplitude: 2000.,
             mountain_scale: 3100.,
@@ -89,35 +75,17 @@ impl Default for Settings {
             tile_colors: false,
             height_colors: false,
             height_grid: false,
-            polar_shadow_grid: false,
-            polar_shadow_xray: false,
-            polar_debug_offset: 512.0,
-            polar_overlay: false,
-            polar_overlay_disk: true,
-            polar_overlay_scale: 1.0,
-            polar_inner_radius: 0.0,
-            polar_outer_radius: 16000.0,
-            polar_source_csm: false,
-            polar_size: [1024, 1024],
-            polar_pcf: true,
-            polar_enabled: true,
-            polar_apply_shadow: true,
-            polar_caster_bias: true,
-            polar_depth_bias: 16.0,
-            polar_source_main_depth: true,
-            polar_debug_texels: false,
-            polar_surface_grid: false,
-            polar_inner_follow_csm: true,
-            azimuth: 60.,
-            elevation: 30.,
+            azimuth: 10.,
+            elevation: 16.,
             direct: true,
             shadows: true,
-            shadow_distance: 256.,
+            csm_apply_shadow: true,
+            shadow_distance: 250.,
             depth_bias: 0.03,
             normal_bias: 0.1,
             pcf: 1,
             sky: 1.,
-            aerial: true,
+            atmosphere_fog: true,
             specular: true,
             albedo: [1.; 3],
             constant_albedo: false,
@@ -155,7 +123,7 @@ impl Default for Camera {
     fn default() -> Self {
         Self {
             position: Vec3::new(0., 200., 0.),
-            yaw: 0.,
+            yaw: std::f32::consts::PI,
             pitch: 0.,
             speed: 80.,
         }
@@ -240,9 +208,7 @@ pub struct Lighting {
     pub splits: [f32; 4],
     pub view_forward: [f32; 4],
     pub material: [f32; 4],
-    pub polar: [f32; 4],
     pub inverse_view_projection: [[f32; 4]; 4],
-    pub polar_sampling: [u32; 4],
 }
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -251,16 +217,6 @@ pub struct CameraUniform {
     pub inverse: f32,
     pub previous: f32,
     pub history_to_current: f32,
-}
-impl Settings {
-    pub fn polar_effective_inner_radius(&self) -> f32 {
-        let requested = if self.polar_inner_follow_csm {
-            self.shadow_distance
-        } else {
-            self.polar_inner_radius
-        };
-        requested.min(self.polar_outer_radius - 1.0)
-    }
 }
 pub fn layout(s: &Settings) -> (u32, u32) {
     let mut levels = 1;
@@ -350,7 +306,8 @@ pub fn cascades(s: &Settings, c: &Camera, aspect: f32) -> Vec<Cascade> {
             let levels = layout(s).0;
             let extent =
                 2f32.sqrt() * 128. * 2f32.powi(levels as i32 - 1) + s.amplitude * 0.75 + 18.;
-            let depth = extent
+            let primitive_extent = if s.primitives.enabled { s.primitives.height + s.primitives.width } else { 0.0 };
+            let depth = extent + primitive_extent
                 + l.dot(center - Vec3::new(c.position.x, 0., c.position.z))
                     .abs()
                 + 16.;
@@ -472,7 +429,7 @@ mod tests {
     #[test]
     fn gpu_layout_and_reversed_depth() {
         assert_eq!(std::mem::size_of::<Scene>(), 752);
-        assert_eq!(std::mem::size_of::<Lighting>(), 560);
+        assert_eq!(std::mem::size_of::<Lighting>(), 528);
         assert_eq!(std::mem::offset_of!(Lighting, shadow_matrices), 160);
         assert_eq!(std::mem::offset_of!(Lighting, material), 448);
         assert_eq!(std::mem::size_of::<CameraUniform>(), 16);

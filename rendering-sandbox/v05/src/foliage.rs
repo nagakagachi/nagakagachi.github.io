@@ -201,9 +201,9 @@ impl Foliage {
                 GEO,
                 &shading,
                 include_str!("shaders/foliage-forward.wgsl"),
-                crate::screen_shadow::PARAMS,
-                crate::screen_shadow::FORWARD,
+                include_str!("shaders/surface-shading.wgsl"),
                 include_str!("shaders/polar-shadow-sampling.wgsl"),
+                include_str!("shaders/polar-shadow-common.wgsl"),
             ],
         );
         let z = [false, true]

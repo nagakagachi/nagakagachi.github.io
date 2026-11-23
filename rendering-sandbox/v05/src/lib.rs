@@ -3,11 +3,13 @@ mod gpu;
 mod height;
 mod host;
 mod models;
+mod primitive;
 mod profiler;
 mod renderer;
 mod scene;
-mod screen_shadow;
 mod sky;
+mod polar_shadow;
+mod volumetric_fog;
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     host::run()
@@ -54,24 +56,92 @@ pub fn smoke() -> Result<(), Box<dyn std::error::Error>> {
                 ..Default::default()
             })
             .await?;
-        screen_shadow::verify_gpu(&device, &queue)?;
+        let cache_only = std::env::args().any(|arg| arg == "--polar-only");
+        let fog_only = std::env::args().any(|arg| arg == "--fog-only");
+        let primitive_only = std::env::args().any(|arg| arg == "--primitive-only");
         let mut r = renderer::Renderer::new(&device);
         let mut timer = profiler::GpuProfiler::new(&device, &queue);
         let mut s = scene::Settings::default();
         let mut c = scene::Camera::default();
         c.pitch = 0.6;
+        if cache_only || fog_only || primitive_only {
+            use polar_shadow::Mapping;
+            r.resize(&device, [640, 360]);
+            s.density = 4;
+            s.radius = if primitive_only { 16000.0 } else { 256.0 };
+            s.primitives.enabled = primitive_only;
+            s.polar.enabled = true;
+            s.polar.inner_follow_csm = false;
+            s.polar.inner_radius = 0.0;
+            s.polar.overlay = false;
+            s.fog.enabled = fog_only;
+            s.csm_apply_shadow = false;
+            if primitive_only {
+                s.trees = false;
+                c.position = glam::Vec3::new(0.0, 6000.0, 6000.0);
+                let direction = (-c.position).normalize();
+                c.pitch = (-direction.y).asin(); c.yaw = (-direction.x).atan2(-direction.z);
+            }
+            let capture = std::env::args().skip_while(|arg| arg != "--capture").nth(1);
+            let preview_once = std::env::args().any(|arg| arg == "--preview-once");
+            // 同じキャッシュをモード切替で再使用し、各ソースとサーフェイスを確認する。
+            for (i, mode) in [Mapping::FullDisk, Mapping::ViewFitted, Mapping::FullDisk].into_iter().enumerate() {
+                s.polar.mapping = mode;
+                s.polar.source_csm = i != 1; s.polar.source_main_depth = i != 0;
+                if preview_once {
+                    s.polar.source_csm = false;
+                    s.polar.source_main_depth = true;
+                }
+                smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
+                if let Some(path) = &capture {
+                    capture_ppm(&device, &queue, &r, std::path::Path::new(path), &format!("psc-mode-{i}"))?;
+                }
+                if preview_once { println!("PASS: PSC実景プレビュー"); return Ok(()); }
+            }
+            s.polar.source_csm = false; s.polar.source_main_depth = false;
+            smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
+            s.polar.source_main_depth = true;
+            for (i, size) in [[256, 512], [512, 256], [1024, 1024]].into_iter().enumerate() {
+                s.polar.mapping = if i == 1 { Mapping::FullDisk } else { Mapping::ViewFitted };
+                s.polar.size = size; s.polar.surface_grid = true;
+                s.polar.pcf = i != 1; s.polar.overlay = true; s.polar.projected = i != 0;
+                s.polar.world_debug = true; s.polar.xray = i == 1; s.polar.grid = true;
+                smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
+            }
+            s.polar.surface_grid = false; s.polar.world_debug = false;
+            s.fog.enabled = true;
+            for mode in [Mapping::FullDisk, Mapping::ViewFitted] {
+                s.polar.mapping = mode;
+                smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
+            }
+            // 履歴を保持したままカメラを動かし、中心がずれた状態のフォグも通す。
+            s.polar.mapping = Mapping::FullDisk;
+            s.polar.preserve_cache = true;
+            smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
+            c.position.x += 16.0;
+            smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
+            s.polar.caster_bias_constant = 128.0;
+            s.polar.caster_bias_scale = 8.0;
+            s.polar.caster_bias_limit = 2048.0;
+            smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
+            s.polar.enabled = false;
+            smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
+            s.fog.density = 0.0; s.fog.divisor = 8;
+            r.resize(&device, [321, 181]);
+            smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
+            s.fog.enabled = false; s.primitives.enabled = false;
+            smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
+            println!("PASS: 統合PSCの両マッピング・各ソース・PCF・解像度・デバッグ・フォグ・無効化");
+            return Ok(());
+        }
         for _ in 0..48 {
             smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
         }
         assert!(!r.foliage.needs_frame, "配置生成が完了する");
         if let Some(path) = std::env::args().skip_while(|s| s != "--capture").nth(1) {
             r.resize(&device, [1280, 720]);
-            for (debug, name) in [(0, "combined"), (1, "mask"), (3, "reasons"), (4, "contact")] {
-                s.screen_shadow.debug = debug;
-                smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
-                capture_ppm(&device, &queue, &r, std::path::Path::new(&path), name)?;
-            }
-            s.screen_shadow.debug = 0;
+            smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
+            capture_ppm(&device, &queue, &r, std::path::Path::new(&path), "combined")?;
         }
 
         for lod in 0..4 {
@@ -111,25 +181,6 @@ pub fn smoke() -> Result<(), Box<dyn std::error::Error>> {
             s.specular_debug = true;
             smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
         }
-        // 解像度・可視化・合成の全組合せを小さいターゲットで検査する。
-        r.resize(&device, [320, 180]);
-        s.screen_shadow.counters = true;
-        for divisor in [1, 2, 4] {
-            s.screen_shadow.divisor = divisor;
-            for mode in 0..3 {
-                s.screen_shadow.mode = mode;
-                for debug in 0..5 {
-                    s.screen_shadow.debug = debug;
-                    smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
-                }
-            }
-            assert_eq!(
-                r.screen.size,
-                screen_shadow::dimensions([320, 180], divisor)
-            );
-        }
-        s.screen_shadow.enabled = false;
-        smoke_frame(&device, &queue, &mut r, &mut timer, &s, &c)?;
         if timer.supported() {
             assert!(
                 timer
@@ -159,7 +210,7 @@ fn smoke_frame(
     let mut e = d.create_command_encoder(&Default::default());
     t.begin(r.frame + 1, true);
     r.prepare_screen(d, s);
-    r.encode(q, &mut e, s, c, t);
+    r.encode(q, &mut e, s, c, t, 1.0 / 60.0);
     {
         let view = r.output.create_view(&Default::default());
         let _p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -182,12 +233,10 @@ fn smoke_frame(
     q.submit([e.finish()]);
     t.submitted(|| {});
     r.foliage.submitted(|| {});
-    r.screen.submitted(|| {});
     // 無人検証に限って完了を待つ。対話描画では同期waitを使わない。
     d.poll(wgpu::PollType::wait_indefinitely())?;
     t.collect();
     r.foliage.collect();
-    r.screen.collect();
     Ok(())
 }
 

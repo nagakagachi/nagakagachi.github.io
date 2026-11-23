@@ -184,7 +184,6 @@ impl ApplicationHandler<Event> for App {
                 if let Some(s) = &mut self.state {
                     s.profiler.collect();
                     s.renderer.foliage.collect();
-                    s.renderer.screen.collect();
                     s.metrics_only &= !s.renderer.foliage.needs_frame;
                     s.window.request_redraw();
                 }
@@ -263,9 +262,7 @@ impl ApplicationHandler<Event> for App {
                 self.repaint_at = None;
                 s.window.request_redraw();
             }
-            let gpu = (s.profiler.pending()
-                || s.renderer.foliage.pending()
-                || s.renderer.screen.pending())
+            let gpu = (s.profiler.pending() || s.renderer.foliage.pending())
             .then_some(now + std::time::Duration::from_millis(8));
             let deadline = match (gpu, self.repaint_at) {
                 (Some(a), Some(b)) => Some(a.min(b)),
@@ -411,7 +408,6 @@ impl State {
     }
     fn draw(&mut self, proxy: &EventLoopProxy<Event>) -> Result<(), String> {
         self.profiler.collect();
-        self.renderer.screen.collect();
         let raw = self.input.take_egui_input(&self.window);
         let mut pixels = [1, 1];
         #[cfg(target_arch = "wasm32")]
@@ -558,6 +554,7 @@ impl State {
             &self.settings,
             &self.camera,
             &mut self.profiler,
+            self.ctx.input(|i| i.stable_dt),
         );
         let paint = self.ctx.tessellate(output.shapes, output.pixels_per_point);
         let screen = egui_wgpu::ScreenDescriptor {
@@ -609,10 +606,6 @@ impl State {
         let foliage_wake = proxy.clone();
         self.renderer.foliage.submitted(move || {
             let _ = foliage_wake.send_event(Event::Metrics);
-        });
-        let screen_wake = proxy.clone();
-        self.renderer.screen.submitted(move || {
-            let _ = screen_wake.send_event(Event::Metrics);
         });
         #[cfg(target_arch = "wasm32")]
         {

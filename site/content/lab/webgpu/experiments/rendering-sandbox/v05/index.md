@@ -1,100 +1,48 @@
 ﻿---
-title: "RenderingSandbox v05"
+title: "RenderingSandbox v05 - PolarShadowCache"
 date: "2026-11-01"
-lastmod: "2026-11-03"
-draft: true
+lastmod: "2026-11-23"
+draft: false
 layout: "rust-sandbox"
 view_copy: true
 preview: "preview.webp"
-preview_caption: "実行時の表示例（Windows版・視点を調整）"
-preview_alt: "Screen Space Shadowを有効にした地形・樹木・影の実行例"
-description: "Screen Space ShadowのベースラインとGPU計測・比較環境"
+preview_caption: "地形と検証用の柱を描画し、MainView DepthBufferからPSCを生成した表示例（Windows版）"
+description: "MainView DepthBufferから超遠距離の疑似シャドウを再構成し、地形とVolumetricFogへ適用する実験"
 ---
 
-CSMで不足する近距離のコンタクトと、CSMが届かない遠距離の影を、メインビューの深度を使うScreen Space Shadowで補います。距離対応と旧来の固定レイを切り替え、品質とコストを比較できます。
+## PolarShadowCache
 
-「ビュー画像をコピー」で、設定パネルを除いた現在の表示をPNG画像としてクリップボードへコピーできます。画像はブラウザ内で作成し、サーバーへ送信しません。コピーにはブラウザのクリップボード利用許可が必要です。
+超遠距離の影を、MainView DepthBufferから作ってみる実験です。近景はCSM、遠景はPolarShadowCache（PSC）を使い、画面に映った山や柱から長い影を落とします。
 
-## Screen Space Shadow
+![ライト平面の円盤を角度と半径の2Dテクスチャへ対応付けるPSCの模式図](polar-shadow-cache.svg)
 
-ZPrePass → Screen Shadow Trace → CSM → Forward HDR → PostProcess → eguiの順です。WebGPUでは同じQueueに順に送信し、独立した非同期Computeで動かしているとは扱いません。
+### 深度をライト空間へ転写する
 
-Traceは深度からView空間の始点を復元し、View空間へ変換したDirectional Light方向に沿ってサンプルします。View空間の原点はカメラ位置なので、始点を原点方向へ割合で寄せて深度面からカメラ側へ離します。各サンプルはView Zと投影スケールから画面UVを直接求め、深度バッファを参照します。ワールド位置への逆変換や各ステップの行列再投影は行いません。既定ONのInterleaved Gradient Noise（IGN）で、画素ごとにサンプル列の位相を1ステップ幅内でずらし、規則的な縞やブロック状の誤差を分散します。光源方向やステップ数は変えません。フレーム番号を使わない静的ジッターで、OFFでは従来の区間中央サンプルへ戻せます。Infinity-far Reversed Zではraw depthからView Zを1/rawで得て、投影スケールからView位置を組み立てます。比較は「レイのView Z − 深度面のView Z」が正で、許容厚みより小さい場合だけヒットです。深度面より手前はヒットしません。法線バッファは追加しません。
+カメラを中心に、Directional Lightに垂直な円盤を置きます。MainView DepthBufferの各画素から位置を復元し、円盤上の角度と半径をテクスチャのU・Vへ、ライト軸方向の位置を深度へ変換します。半径方向は近くを密、遠くを疎に配置します。
 
-既定はフル解像度・16ステップ・レイ長64m・基準厚み0.2m・カメラ方向の始点バイアス0.01%です。等倍/縦横1/2/縦横1/4と4/8/16/32/64ステップを選択できます。64ステップは品質比較用で、既定16ステップの4倍の深度サンプルが上限になります。1080pで縦横1/4・8ステップなら、論理的な深度参照数の上限は約1.04M/Frameです。始点の深度取得は別に1回/対象画素あり、空の除外・交差や画面外での終了により実際の回数は変わります。
+Compute Shaderで同じセルへ集まる点をReversed ZのAtomicMaxで合成し、ライトに最も近い点を保存します。既定は角度1024×半径1024、外半径16 kmです。メッシュをライト視点でもう一度描く代わりに、メインビューで得た可視面を利用します。
 
-## サンプル位置と合成の処理
+### 地形とフォグから参照する
 
-```wgsl
-let phase = select(0.5, interleavedGradientNoise(originPixel), ss.display.w != 0u);
-originView *= 1.0 - ss.trace.z;
-let distance = mix(lo, hi, phase);
-```
+地形・樹木・検証用の柱では、受光点を同じPSC座標へ写像して深度比較します。4点のPCFと、セルのワールド寸法に応じたキャスターバイアスを備えています。全周のFull Diskと、視野の円錐をライト平面へ投影したView-Fittedを切り替えられます。
 
-`trace.z`はバイアス割合です。View空間の原点がカメラ位置なので、この乗算で復元した表面位置を視線に沿ってカメラ側へ寄せます。既定の0.01%では、カメラから200mの位置を2cm寄せます。各画素のIGNで区間内の位置を決めます。lo/hiは初期の細かい区間か、後半の二次配置の区間です。ノイズテクスチャは追加せず、静止時は同じ位置を使います。
+VolumetricFogでも同じPSCから太陽光の遮蔽を参照します。カメラからの視線はライト平面上で円盤中心から伸びるので、原則としてUを固定し、V方向へ進むサンプリングができます。既定は縦横1/2解像度・16ステップ・最大16 kmです。
 
-```wgsl
-let visibility = screenMaskAt(pixel);
-return min(csm, visibility);
-```
+### キャッシュとして残す
 
-全ての距離でレイ全体の可視率を使い、Forwardの直射光へ適用します。CSMと重なる部分は小さい可視率を採用し、同じ影を乗算で二重に暗くしません。
+Full Diskのキャッシュ維持では、前フレームの深度から点を復元し、今回のカメラとライトに合わせて再投影します。現在のMainViewDepthと矛盾する履歴は除去し、視野内の履歴を徐々にライト軸の奥へ押し込んで更新します。
 
-## 距離に応じたサンプリング
+画面外へ出た遮蔽物を引き継げますが、テクセル中心からの復元誤差と点の散布による穴抜けが残っています。最初から画面に映っていない面や、ほかの面の裏側にある遮蔽物の情報も不足します。完成した遠景シャドウ手法としての品質はまだありません。
 
-距離対応は既定ONです。視点からの線形深度をzとして、scale=max(1,z/基準距離)で後半のレイを拡張します。既定の基準距離は128m、最大レイ長は8192mです。例えばz=128mまでは64m、z=1024mで512m、z=8192mで4096mのレイになります。
+### 試すときは
 
-最初4ステップは、視点距離に関係なく0.25m間隔を維持します。最初から遠景用の大きな間隔で進んで、近い遮蔽物を飛び越えるのを抑えるためです。残り12ステップは、初期区間の終端からレイ終端までを二次分布で配置します。ステップ数自体は増やしません。IGNは各区間の中でサンプル位置をずらします。
+PSCの「シェーディングに適用」とVolumetricFogの「太陽光を遮蔽」を切り替えると、地表の影と空間内の影を確認できます。ワールド空間の円盤、2Dテクスチャ、サーフェイス上のテクセル格子も表示できます。一辺16 kmの四方に置いた高さ3 kmの柱は、長い影を観察するための検証用Primitiveです。
 
-厚みも距離に応じて緩和します。後半の判定幅は「基準厚み×scale＋区間幅×係数」を最大厚みで制限します。既定の係数は0.5、最大厚みは256mです。最初の細かい区間には基準厚みだけを使い、近景の接触部を遠景用の大きな許容幅で潰さないようにします。ヒット条件は「レイのビューZ − 深度面のビューZ」が正で、かつ許容厚みより小さいことです。つまり深度面より手前にあるレイはヒット扱いしません。厚みはレイが深度表面の背後へどこまで入れば交差とみなすか、という近似です。緩和しすぎると別の物体や斜面を誤って遮蔽物と判断します。
+GPU時間の表示と設定のA/B保存はありますが、この手法について十分な最適化や性能比較は行っていません。超遠方までジオメトリを使ってシャドウマップを描く場合に対し、そのジオメトリ負荷を抑えるアイデアとしてのデモです。
 
-距離対応OFFでは、従来の等間隔レイ・固定厚みへ戻ります。初期ステップ数、初期間隔、基準距離、最大レイ長、最大厚み、区間幅の係数をUIで変更できます。
+### 参考資料
 
-## CSMとの合成
+- [Artem Kovalovs, Volumetric Effects of The Last of Us Part II — Naughty Dog, SIGGRAPH 2020](https://www.naughtydog.com/blog/naughty_dog_at_siggraph_2020) ／ [講演スライド](https://s3.amazonaws.com/nd.images/research/2020_siggraph/Volumetrics.pptx)。Sun Shadow Cacheのライト平面上のマッピングと、フォグからの参照を参考にしました。資料ではCSMとSun Shadow Snapshotを入力に使います。今回のMainViewDepthからの転写は、そのキャッシュの考え方を応用した実験です。
+- [講演概要 — Volumetric Effects of The Last of Us: Part Two](https://history.siggraph.org/wp-content/uploads/2022/08/2020-Talks-Kovalovs_Volumetric-Effects-of-The-Last-of-Us-Part-Two.pdf)。遠距離のフォグを照らすための中間キャッシュとSnapshotの概要が記載されています。
 
-Screen Space Shadowは、CSMの範囲内外を問わず全距離で計算・適用します。近景でもレイ全体の可視率を用い、CSM終端での切り替えや距離による適用制限はありません。距離で変わるのはレイ長・サンプル間隔・厚みの設定です。
-
-合成はmin(CSM,Screen Space Shadow)です。CSMがOFFならScreen Space Shadowだけ、Screen Space ShadowがOFFならCSMだけになります。直射光だけへ適用し、SkyLightには掛けません。
-
-全体の可視率はマスクのRに格納します。Aに保持している最初の細かい区間だけの可視率は、サンプリングを確認するための診断用です。Aだけを近景へ適用するような処理は行いません。
-
-## 可視化と比較
-
-パラメータUIは「ライト」と「シャドウ」を分けています。「シャドウ」の下に「ディレクショナルシャドウ」（CSM・バイアス・PCF・キャスターカリング）と「Screen Space Shadow」を置いています。
-
-可視率マスク、初期区間マスク、深度参照数、終了理由をメイン画面へ表示できます。終了理由は赤が交差、緑が未交差、青が画面外/投影範囲外、黒が空です。CSMのみ/Screen Space Shadowのみ/合成の比較も可能です。合成切替ではTraceを継続するため、GPU負荷を比較するときはScreen Space Shadow自体をOFFにしてください。
-
-低解像度マスクはPointまたは4tapのBilinearで参照します。初版には深度境界を考慮した再構成や時間蓄積を入れていません。Bilinearは境界をまたいで影を混ぜるため、シルエット付近で漏れが生じます。
-
-## GPU計測
-
-GPU Frameとパス別の最新値・中央値・P95を、直近240サンプルで表示します。条件を変更すると統計をリセットし、30サンプルのウォームアップを除外します。樹木の生成が完了した時も統計をリセットします。結果は非同期で取得し、GPU完了を対話描画で同期waitしません。計測非対応環境では非対応と表示します。
-
-設定・カメラ・描画解像度をA/Bとして保存・復帰できます。比較時にはカメラと太陽の移動を止め、樹木の配置生成完了後に測定してください。CPU時間・Present待ちはGPU Frameへ含みません。
-
-診断カウンタは任意ONです。Traceした画素数、始点を含む実際の深度参照数、交差数、画面外終了数をWorkgroup内で縮約し、大域Atomicは1Workgroupにつき最大4回に限定します。診断は描画結果を変えませんが計測負荷は加わるため、通常の時間比較ではOFFにします。参照回数はDRAM転送量やキャッシュミスの測定ではありません。
-
-## TODOと既知の問題
-
-- [ ] **Screen Space Shadowの自己遮蔽的なアーティファクトの原因を切り分け、低減する。** 現在の表示で目立つことを確認しており、この版では未修正です。
-
-## 制限と次の検討
-
-画面外や手前の物体に隠れた遮蔽物は復元できません。少数ステップは薄い遮蔽物を見落とし、単一深度＋厚みの近似は誤遮蔽も起こします。この版は完成形の性能や品質を保証するものではありません。
-
-Blue Noise、時間蓄積、Hi-Z、深度サンプル共有は未実装です。今後、前処理と再構成のコストも含め、この基準実装と比較します。
-
-IGNの参考：[Interleaved Gradient Noise — Alan Wolfe](https://blog.demofox.org/2022/01/01/interleaved-gradient-noise-a-different-kind-of-low-discrepancy-sequence/)
-
-[前版v04](../v04/) · [v05ソース（GitHub）](https://github.com/nagakagachi/nagakagachi.github.io/tree/main/rendering-sandbox/v05)
-
-
-Unity HDRPもレイの始点・終点をクリップ空間へ写した後、レイを画面UVと深度の空間で追跡します。本実装はDirectional Lightに限定し、View空間レイと投影スケールで各点を直接画面へ写す単純な形にしています。
-
-## 参考資料
-
-- [Unity HDRP ContactShadows.compute](https://github.com/Unity-Technologies/Graphics/blob/master/Packages/com.unity.render-pipelines.high-definition/Runtime/Lighting/Shadow/ContactShadows.compute)：カメラ相対位置をカメラ方向へ寄せる始点バイアス、視点深度に応じたレイ長、IGN、交差の許容幅
-- [HDRP Camera-Relative Rendering](https://docs.unity.cn/Packages/com.unity.render-pipelines.high-definition%4012.0/manual/Camera-Relative-Rendering.html)：シェーダのワールド位置とカメラ位置の扱い
-- [Tomasz Stachowiak — Depth buffer raymarching](https://gist.github.com/h3r2tic/9c8356bdaefbe80b1a22ae0aaee192db)：非線形サンプル配置、レイ長・ステップ数と厚みの関係
-
-この版は、それらを参考にした独自の組み合わせです。HDRPやBend Studioのアルゴリズムをそのまま移植したものではありません。初期細分化でも全ての薄い遮蔽物を保証できず、IGNだけではノイズは消えません。
+MainView DepthBufferを流用してShadowCacheを生成してみる、というアイデアの参考にしてもらえれば嬉しいです。
