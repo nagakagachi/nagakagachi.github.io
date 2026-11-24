@@ -33,6 +33,14 @@ body:has(.rust-sandbox-article) main.shell { max-width:none; }
 </div>
 <canvas id="rust-canvas" style="display:block;width:100%;height:max(320px,calc((100cqw - 300px) * 9 / 16 + 40px));max-height:85vh;outline:none" aria-label="Rust RenderingSandboxの描画と操作パネル" tabindex="0"></canvas>
 </section>
+{{ with .Resources.Get "source-manifest.json" }}
+  {{ $source := .Content | transform.Unmarshal }}
+  <nav aria-label="ソースコード" class="article-body">
+    <strong>ソース</strong> · <a href="{{ ($.OutputFormats.Get "Source").RelPermalink }}">サイト内で読む</a>
+    · <a href="{{ $source.github }}/tree/{{ $source.revision }}/{{ $source.repository_path }}">GitHub</a>
+    · <a href="{{ $.RelPermalink }}source/workspace/README.md.html">ビルド・実行手順</a>
+  </nav>
+{{ else }}{{ errorf "Rustソースの生成が必要です: %s" .File.Path }}{{ end }}
 <div class="article-body">{{ .Content }}</div>
 </article>
 <script type="module">

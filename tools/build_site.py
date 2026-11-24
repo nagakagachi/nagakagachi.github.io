@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 from build_rust import build as build_rust
+from export_rust_sources import export_sources
 
 
 def main():
@@ -32,6 +33,7 @@ def main():
             bundle = Path('content/lab/webgpu/experiments/rendering-sandbox') / version
             rust_page = repository / 'site' / bundle / 'index.md'
             if rust_page.exists() and (args.drafts or 'draft: true' not in rust_page.read_text(encoding='utf-8-sig')):
+                export_sources(repository, stage / bundle, version)
                 generated = build_rust(Path(temporary) / f'rust-web-{version}', version)
                 for asset in ('sandbox.js', 'sandbox_bg.wasm'):
                     shutil.copy2(generated / asset, stage / bundle / asset)

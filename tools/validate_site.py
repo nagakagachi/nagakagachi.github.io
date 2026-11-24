@@ -72,6 +72,21 @@ def validate(root, source):
                 errors.append(f'Article missing: {index}')
             elif fields.get('hatena_original_url') and fields['hatena_original_url'] not in pages[target].refs:
                 errors.append(f'Original article link missing: {index}')
+    # Rust版のソース導線は記事側の手書きに依存させず、公開時の必須項目にする。
+    for index in source.glob('content/lab/webgpu/experiments/rendering-sandbox/v*/index.md'):
+        text = index.read_text(encoding='utf-8-sig')
+        if 'layout: "rust-sandbox"' not in text:
+            continue
+        base = root / index.parent.relative_to(source / 'content')
+        if 'draft: true' in text:
+            if (base / 'source.html').exists() or (base / 'code').exists():
+                errors.append(f'Draft source was published: {index}')
+            continue
+        if not (base / 'source.html').is_file():
+            errors.append(f'Rust source index missing: {index}')
+        main = pages.get(base / 'index.html')
+        if not main or not any(ref.endswith('/source.html') for ref in main.refs):
+            errors.append(f'Rust source navigation missing: {index}')
     for name in ('hatena_backup', 'tools', 'content', 'drafts'):
         if (root / name).exists():
             errors.append(f'Private source directory in output: {name}')

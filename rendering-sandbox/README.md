@@ -82,3 +82,11 @@ python tools/subset_sandbox_font.py <取得したNotoSansJPのTTF>
 3Dの描画解像度は「描画」から選びます。既定のAutoは表示領域とDPIに追従し、1920×1080を上限とします。720p・1080p・1440p・2160pの固定指定も可能です。いずれも16:9で、eguiの解像度は変更しません。
 
 Web版はCSSがCanvasの表示サイズを所有する。起動時のwith_inner_sizeや実行中のrequest_inner_sizeはCSSを固定pxへ書き換えるため使用しない。winit内蔵ResizeObserver → Resized → Surface再設定 → eguiレイアウト → 3D用RT再設定の順で追従する。Autoだけが表示サイズに合わせて変化し、固定解像度は維持する。
+
+## 公開ソースの生成
+
+`tools/build_site.py` は公開対象のRust版について、`tools/export_rust_sources.py` で正本の `src/**/*.rs`・`src/**/*.wgsl` とCargo設定・READMEを一時ビルド先へ転写します。生成物はコミットしません。記事の `outputs: ["HTML", "Source"]` と共通テンプレートにより、`source.html` の一覧、ファイル別の行番号・構文色付きHTML、原文の `.txt` を生成します。
+
+GitHubへのリンクはビルド時のHEADのコミットSHAに固定します。ローカルのソース変更を含む場合は閲覧ページに表示します。WGSLはRust側で連結する前の正本を掲載し、各Rustファイルの `include_str!` 参照もリンクします。下書き版は公開用ビルドではソースも生成しません。
+
+ソース配布の検証：`python -m unittest discover -s tools -p test_export_rust_sources.py`。公開ビルドでは `tools/validate_site.py` がソース導線とリンク先も検証します。

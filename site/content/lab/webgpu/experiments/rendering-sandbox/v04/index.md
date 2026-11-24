@@ -4,6 +4,7 @@ date: "2026-11-01"
 lastmod: "2026-11-01T19:34:00+09:00"
 draft: false
 layout: "rust-sandbox"
+outputs: ["HTML", "Source"]
 preview: "preview.webp"
 preview_caption: "実行時の表示例（共通RustレンダラのWindows版）"
 description: "Rust・wgpu・eguiによるWebとWindows共通レンダラの移行検証"
@@ -39,4 +40,4 @@ Windows DX12での描画検証、Wasmビルド、データ構造とシェーダ�
 
 ## ソース
 
-[共通レンダラ・Modeler・WGSL（GitHub）](https://github.com/nagakagachi/nagakagachi.github.io/tree/main/rendering-sandbox/v04) · [ビルドと実行手順](https://github.com/nagakagachi/nagakagachi.github.io/blob/main/rendering-sandbox/README.md)
+[共通レンダラ・Modeler・WGSLのソース一覧](source.html) · [ビルドと実行手順](source/workspace/README.md.html)

@@ -1,9 +1,10 @@
 ﻿---
 title: "RenderingSandbox v05 - PolarShadowCache"
 date: "2026-11-01"
-lastmod: "2026-11-24"
+lastmod: "2026-11-25"
 draft: false
 layout: "rust-sandbox"
+outputs: ["HTML", "Source"]
 view_copy: true
 preview: "preview.webp"
 preview_caption: "PSCによる遠距離シャドウとVolumetricFogの表示例"
@@ -75,6 +76,17 @@ Full Diskのキャッシュ維持では、前フレームの深度から点を�
 PSCの「シェーディングに適用」とVolumetricFogの「太陽光を遮蔽」を切り替えると、地表の影と空間内の影を確認できます。ワールド空間の円盤、2Dテクスチャ、サーフェイス上のテクセル格子も表示できます。一辺16 kmの四方に置いた高さ3 kmの柱は、長い影を観察するための検証用Primitiveです。
 
 GPU時間の表示と設定のA/B保存を備えていますが、PSCの性能評価や最適化は未実施です。ジオメトリ負荷を抑える可能性を試すデモであり、高速化の効果を実測で示したものではありません。
+
+### ソース
+
+| 内容 | Rust側の処理 | WGSL |
+|---|---|---|
+| PSCのリソース・パス構成、深度転写・履歴再投影 | [polar_shadow.rs](source/src/polar_shadow.rs.html) | [polar-shadow-build.wgsl](source/src/shaders/polar-shadow-build.wgsl.html) |
+| 円盤・View-Fittedの座標変換 | 同上 | [polar-shadow-common.wgsl](source/src/shaders/polar-shadow-common.wgsl.html) |
+| 深度比較・PCF、サーフェイスへの適用 | [renderer.rs](source/src/renderer.rs.html) | [polar-shadow-sampling.wgsl](source/src/shaders/polar-shadow-sampling.wgsl.html) ／ [surface-shading.wgsl](source/src/shaders/surface-shading.wgsl.html) |
+| フォグの積分・PSC参照 | [volumetric_fog.rs](source/src/volumetric_fog.rs.html) | [volumetric-fog.wgsl](source/src/shaders/volumetric-fog.wgsl.html) |
+
+パス全体の実行順序は[renderer.rs](source/src/renderer.rs.html)、その他のファイルは[ソース一覧](source.html)から参照できます。
 
 ### 参考資料
 

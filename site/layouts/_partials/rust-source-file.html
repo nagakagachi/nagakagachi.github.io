@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ja"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,follow">
+<title>{{ .Entry.path }} · {{ .Page.Title }} · {{ .Page.Site.Title }}</title>
+<link rel="stylesheet" href="{{ "css/site.css" | relURL }}">
+<style>
+main.source-file { max-width:1440px; margin:32px auto; padding:0 20px; }
+.source-file h1 { font-size:clamp(18px,3vw,28px); overflow-wrap:anywhere; }
+.source-file .highlight { overflow-x:auto; margin:24px 0; }
+.source-file pre { font-size:13px; line-height:1.65; }
+.source-file .chroma .lnt:target { background:#36515c; outline:1px solid currentColor; }
+</style>
+</head><body><main class="source-file">
+<nav aria-label="ソースナビゲーション"><a href="{{ .Page.RelPermalink }}">← 実験ページ</a> · <a href="{{ (.Page.OutputFormats.Get "Source").RelPermalink }}">ソース一覧</a></nav>
+<h1>{{ .Entry.path }}</h1>
+<p><a href="{{ .Code.RelPermalink }}">直接表示・保存</a> · <a href="{{ .Manifest.github }}/blob/{{ .Manifest.revision }}/{{ .Entry.repository_path }}">GitHub（{{ substr .Manifest.revision 0 7 }}）</a>{{ if .Manifest.dirty }} · ローカル変更を含みます{{ end }}</p>
+{{ with .Entry.includes }}
+<p>埋め込むソース：{{ range $i, $path := . }}{{ if $i }} · {{ end }}<a href="{{ $.Page.RelPermalink }}source/{{ $path }}.html">{{ $path }}</a>{{ end }}</p>
+{{ end }}
+{{ highlight .Code.Content .Entry.language "linenos=table,anchorlinenos=true,lineanchors=L" }}
+</main></body></html>

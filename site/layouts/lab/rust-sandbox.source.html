@@ -1,0 +1,19 @@
+{{ define "main" }}
+{{ $manifest := (.Resources.Get "source-manifest.json").Content | transform.Unmarshal }}
+<article class="article">
+<header class="article-header"><a class="back-link" href="{{ .RelPermalink }}">← {{ .Title }}</a><h1>{{ .Title }} ソース</h1></header>
+<div class="article-body">
+<p>RustとWGSLの正本からビルド時に生成しています。<a href="{{ $manifest.github }}/tree/{{ $manifest.revision }}/{{ $manifest.repository_path }}">GitHubの対応コミット {{ substr $manifest.revision 0 7 }}</a>{{ if $manifest.dirty }}（このプレビューはローカル変更を含みます）{{ end }}</p>
+<p>WGSLはRust側で複数ファイルを連結し、subgroup対応などのコードを差し込んで使います。ここに掲載するのは連結前のソースです。各Rustファイルには、include_str!で埋め込むソースへのリンクも表示します。</p>
+<ul>
+{{ range $manifest.files }}
+  {{ $code := $.Resources.Get .resource }}
+  {{ $fileHTML := partial "rust-source-file.html" (dict "Page" $ "Manifest" $manifest "Entry" . "Code" $code) }}
+  {{ $path := printf "%ssource/%s.html" (strings.TrimPrefix "/" $.RelPermalink) .path }}
+  {{ $file := resources.FromString $path $fileHTML }}
+  <li><a href="{{ $file.RelPermalink }}">{{ .path }}</a> · <a href="{{ $code.RelPermalink }}">直接表示</a> · <a href="{{ $manifest.github }}/blob/{{ $manifest.revision }}/{{ .repository_path }}">GitHub</a></li>
+{{ end }}
+</ul>
+</div>
+</article>
+{{ end }}

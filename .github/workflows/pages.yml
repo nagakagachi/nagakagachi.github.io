@@ -3,9 +3,9 @@ name: Build and publish site
 on:
   push:
     branches: [main]
-    paths: ['rendering-sandbox/**', 'tools/build_rust.py', 'site/**', 'tools/validate_site.py', 'tools/build_site.py', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/pages.yml']
+    paths: ['rendering-sandbox/**', 'tools/build_rust.py', 'tools/export_rust_sources.py', 'tools/test_export_rust_sources.py', 'site/**', 'tools/validate_site.py', 'tools/build_site.py', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/pages.yml']
   pull_request:
-    paths: ['rendering-sandbox/**', 'tools/build_rust.py', 'site/**', 'tools/validate_site.py', 'tools/build_site.py', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/pages.yml']
+    paths: ['rendering-sandbox/**', 'tools/build_rust.py', 'tools/export_rust_sources.py', 'tools/test_export_rust_sources.py', 'site/**', 'tools/validate_site.py', 'tools/build_site.py', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -23,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Test source export
+        run: python3 -m unittest discover -s tools -p test_export_rust_sources.py
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
